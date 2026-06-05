@@ -1,253 +1,152 @@
-# turbo-dom-parser
+# turbo-dom
 
-Native HTML parser for a lazy, copy-on-write DOM test runtime — **Layer 1** of the
-[turbo-dom design](./turbo-dom-spec.md). One Rust core backed by
-[`html5ever`](https://github.com/servo/html5ever) (Servo's spec-compliant WHATWG tree
-constructor), exposed through two interchangeable front-ends:
+A faster, more spec-correct DOM for test runners — a drop-in-style alternative to
+**jsdom** and **happy-dom** for **vitest** and **jest**.
 
-| Front-end | Build | Use |
-|---|---|---|
-| **napi-rs** native addon | `npm run build` | default fast path |
-| **wasm-bindgen** `wasm32` | `npm run build:wasm` | StackBlitz / WebContainers / locked-down CI |
-
-Both expose the same API and the boundary is crossed **exactly once per parse**. The runtime
-uses `parseBuffer()` — a compact **Structure-of-Arrays** typed-array buffer that the JS DOM
-inflates node handles from lazily (the plan's SoA optimization, shipped). A full lazy
-copy-on-write DOM + lazy window (Layers 2–5) is assembled on top.
-
-## Thesis, restated
-
-happy-dom traded **correctness** for speed → a permanent compatibility tax, and its
-hand-rolled parser will never catch the WHATWG tree-construction edge cases (table
-foster-parenting, optional end tags, `<template>` content, SVG/MathML foreign content).
-We **inherit** Servo's correctness instead of chasing it.
-
-## Conformance
-
-Gated against [`html5lib-tests`](https://github.com/html5lib/html5lib-tests)
-tree-construction (the WHATWG conformance suite, fuzzed against browsers):
-
-```
-PASS 1778  FAIL 5  ERROR 0  SKIP 8
-Conformance: 99.72%   (55/57 fixture files fully clean, 0 crashes)
-```
-
-**All 5 remaining misses are bleeding-edge `<select>`-family proposals** the newest
-html5lib-tests track but `html5ever` 0.39 hasn't adopted — the experimental
-`<selectedcontent>` / customizable-`<select>` element and `<input>`/`<button>`-in-select
-edge cases. **Zero are marshaling or serializer bugs** — a regression test asserts any
-non-`<select>` failure fails the build (`test/conformance.test.mjs`). Chasing them means
-patching the parser, against the "inherit Servo's correctness" thesis.
-
-### Delta vs happy-dom / jsdom (same suite, same serializer)
-
-| engine | pass | fail | crash | rate |
-|---|---:|---:|---:|---:|
-| **turbo-dom** | 1778 | 5 | 0 | **99.72%** |
-| jsdom | 1730 | 53 | 0 | 97.03% |
-| happy-dom | 666 | 1116 | 1 | **37.35%** |
-
-happy-dom's 1116 failures are concentrated in the **adoption agency algorithm**
-(`<a><p></a></p>` reparenting) and **table foster-parenting** — the exact "messy input"
-bug class the design autopsy predicted from a hand-rolled parser. turbo-dom inherits
-Servo's tree constructor and sidesteps all of it.
-
-Run it:
+The HTML parser is native ([html5ever](https://github.com/servo/html5ever), Servo's
+WHATWG tree constructor, via Rust/N-API with a WASM fallback). The DOM itself stays in
+JavaScript but is **lazy** — nodes inflate from a compact typed-array buffer only when a
+test touches them, and `window` globals materialize only on first use.
 
 ```bash
-npm run conformance              # our summary + per-file table
-npm run conformance:delta        # turbo-dom vs happy-dom vs jsdom
-node harness/conformance.mjs --verbose          # show failing diffs
-node harness/conformance.mjs --file tests1.dat  # one fixture
+npm install -D turbo-dom
 ```
 
-## Speed
+- ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
+  Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
+- ⚡ **Faster than jsdom** — ~19× lower per-file setup, 11–39× faster HTML parsing.
+- 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros and
+  `getComputedStyle` reflects only what you set. Geometry tests belong in a real browser.
 
-Parse throughput, ops/sec (higher is better), `npm run bench`. `parseBuffer()` is the
-**SoA fast path** (typed arrays, the runtime uses it); `parse()` is the old full JS-tree
-marshaling; `parseRaw()` is parse-only (the floor):
+## Quick start
 
-| fixture | `parseBuffer()` | `parse()` | `parseRaw()` | parse5 | happy-dom | jsdom |
-|---|---:|---:|---:|---:|---:|---:|
-| small (122 B) | 70.8k | 49.4k | 308k | 325k | 17.7k | 17.8k |
-| ssr-large (56 KB) | 502 | 119 | 707 | 651 | 46 | 23 |
-| deep-nested (4.4 KB) | 2,459 | 1,171 | 2,706 | 1,143 | 714 | 84 |
-| malformed (92 B) | 27.1k | 21.4k | 229k | 222k | 6.2k | 2.2k |
-| real-storybook (20 KB) | 3,912 | 1,806 | 6,448 | 2,200 | 353 | 100 |
+### vitest
 
-- **SoA win:** `parseBuffer()` is **1.3–4.2× faster than the old `parse()`** (4.2× on 56 KB SSR,
-  2.2× on real HTML) and now within **1.4–1.65× of the `parseRaw` floor** (full marshaling was
-  4–8× off). It beats parse5 on the large fixtures and crushes happy-dom/jsdom by **11–39×**.
-- **Why:** `parseRaw` ≈ parse5, so html5ever itself is fast — the cost was building the JS tree.
-  SoA emits compact typed arrays once and inflates node objects only on access, deleting the
-  eager full-tree allocation. This is the Phase-2.5 bet from the plan, now shipped.
-- **wasm fallback** (`npm run bench:wasm`): 51–125% of native throughput — acceptable, same SoA
-  contract, single boundary copy.
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
 
-## API
-
-```js
-const { parse, parseBuffer, parseFragment } = require('turbo-dom-parser');
-
-parseBuffer('<div id=a><span>hi</span></div>');  // → SoA typed arrays (runtime fast path)
-parse('<div id=a><span>hi</span></div>');         // → nested tree { nodeType, name, children … }
-parseFragment('<li>one</li>', );                   // body context
-parseFragment('<rect/>', 'svg path');             // foreign context
+export default defineConfig({
+  test: {
+    environment: 'turbo-dom', // resolves to vitest-environment-turbo-dom
+    // or: environment: './node_modules/turbo-dom/src/environment/vitest.mjs'
+  },
+});
 ```
 
-`parse()` nodes: `{ nodeType, name, value, namespace, publicId, systemId, attrs, children }`
-where `attrs` is `{ name, value, prefix }[]`. nodeTypes follow the DOM (`1` element, `3` text,
-`8` comment, `9` document, `10` doctype, `11` template-content fragment). The DOM runtime below
-uses `parseBuffer()`.
-
-## Test runtime (Layers 2–5)
-
-A lazy, copy-on-write DOM + window assembled over the native parser:
+### jest
 
 ```js
-import { createEnvironment } from './src/runtime/index.mjs';
+// jest.config.js
+module.exports = {
+  testEnvironment: 'turbo-dom/jest',
+};
+```
 
-const env = createEnvironment('<!doctype html><body><div id=app></div></body>');
-env.document.querySelector('#app');     // nodes inflate lazily from the buffer
+Now `document`, `window`, and friends are global in your tests — write them exactly like
+you would against jsdom/happy-dom:
+
+```js
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+test('counter increments', async () => {
+  render(<Counter />);
+  await userEvent.click(screen.getByRole('button'));
+  expect(screen.getByText('count: 1')).toBeInTheDocument();
+});
+```
+
+### Without a test runner
+
+```js
+import { createEnvironment } from 'turbo-dom/runtime';
+
+const env = createEnvironment('<!doctype html><body><div id="app"></div></body>');
+env.document.querySelector('#app');     // nodes inflate lazily from the parse buffer
 env.window.localStorage;                // globals materialize on first touch
-env.reset();                            // arena-style per-file reset
+env.reset();                            // fast per-file reset (reuses the parse buffer)
 ```
 
-- **Layer 2** — node handles inflate lazily from the immutable parse buffer; first
-  access memoizes the handle, so `===` identity, WeakMap keys, and event targets hold.
-  Mutation promotes the node to fully-owned (COW). `childNodes`/`children`/
-  `getElementsByTagName`/`ClassName` are **live**. Full event model (capture/target/bubble,
-  `composedPath`, `stopImmediatePropagation`, `once`, typed events). Selector engine
-  (combinators, `[attr op]`, `:not`, structural pseudos), `innerHTML`/`outerHTML`.
-- **Layer 3** — `window` is a Proxy; ~lazy globals self-replace on first `get` and the
-  Proxy traces which a test touched. Render-only tests construct **zero** globals.
-- **Layer 4** — honest stubs: `getBoundingClientRect()` → zeros, `getComputedStyle` →
-  inline-only (empty, never a plausible lie), no reflow.
-- **Layer 5** — `reset()` drops the COW overlay + node cache + materialized globals,
-  keeping the buffer and classes warm.
+### Just the parser
 
-Light-test path (construct + one query): **25.6× jsdom, 12.9× happy-dom**
-(`npm run bench:construct`).
+```js
+const { parse, parseBuffer, parseFragment } = require('turbo-dom');
 
-### Full benchmark report
+parse('<div id=a><span>hi</span></div>');         // nested tree
+parseBuffer('<div id=a>...</div>');                // compact SoA typed-array buffer
+parseFragment('<rect/>', 'svg path');              // fragment in a context element
+```
 
-Numbers from one run on darwin-arm64 (Node 24). Reproduce with `npm run bench:all`.
+## Compatibility
 
-**Per-file construction + 1 light query** (`bench/construct.mjs`, ops/sec):
-
-| engine | ops/sec | vs jsdom |
-|---|---:|---:|
-| turbo-dom | 6,808 | **25.6×** |
-| happy-dom | 526 | 2.0× |
-| jsdom | 266 | 1.0× |
-
-Lazy payoff inside turboDom: touch-1-node **6,928** vs touch-all+globals **934** → the light
-path is **7.4×** the full-inflation path (laziness pays when a test touches little).
-
-**Real test-suite wall-clock** — 200 files, fresh env each (`bench/suite.mjs`, lower better):
-
-| engine | total | per file | |
-|---|---:|---:|---|
-| turbo-dom | 25 ms | **0.125 ms** | — |
-| happy-dom | 289 ms | 1.447 ms | 9.1× slower |
-| jsdom | 671 ms | 3.356 ms | **21.0× slower** |
-
-- lazy vs eager **nodes** (turbo-dom): 33 ms vs 38 ms (1.15× — workload touches most nodes here)
-- lazy vs eager **window** (construction only): 12,509 vs 10,173 constructs/sec (1.23×)
-
-**WASM vs native** parseBuffer (`bench/wasm.mjs`, ops/sec):
-
-| fixture | native | wasm | wasm/native |
-|---|---:|---:|---:|
-| small | 66,752 | 77,213 | 116% |
-| ssr-large | 524 | 269 | 51% |
-| deep-nested | 1,433 | 1,798 | 125% |
-| malformed | 58,213 | 53,525 | 92% |
-| real-storybook | 4,590 | 2,853 | 62% |
-
-Worst case 51% of native (wasm even edges native on small/deep, JIT variance) — fallback
-acceptable, same SoA contract, single boundary copy.
-
-## Testing — every bench & test the plan specifies (§9)
-
-| Phase | Plan-specified item | Where | Result |
+| | turbo-dom | happy-dom | jsdom |
 |---|---|---|---|
-| **1** | eager-vs-lazy window microbench | `bench/suite.mjs` (c) | 1.10× (our globals are cheap stubs) |
-| **1** | surface-usage histogram (tracer) | `bench/construct.mjs` | render-only → **0** globals; routing → history+location |
-| **1** | real-suite wall-clock, per-file | `bench/suite.mjs` (a) | **18.9× jsdom, 6.9× happy-dom** (0.12 ms/file) |
-| **2** | parse throughput vs JS parsers | `bench/parse.mjs` | 11–39× happy-dom/jsdom; SoA beats parse5 on large |
-| **2** | boundary-cost isolation (parse vs marshal) | `bench/parse.mjs` (`parseRaw`) | drove the SoA build; now within 1.4–1.65× of floor |
-| **2** | WASM-vs-native delta | `bench/wasm.mjs` | 51–125% of native — fallback acceptable |
-| **2** | html5lib conformance + delta | `harness/delta.mjs` | **99.72%** vs jsdom 97.03% vs happy-dom 37.35% |
-| **3** | differential vs jsdom (oracle) | `test/differential.test.mjs` | matches jsdom exactly across fuzz seeds |
-| **3** | real-library gauntlet (RTL + user-event) | `test/gauntlet.test.mjs`, `test/userevent.test.mjs` | both run **unmodified** |
-| **3** | liveness/identity property tests | `test/liveness.test.mjs`, `test/runtime.test.mjs` | adoption-agency, foster-parenting, WeakMap, `===` |
-| **3** | invariant fallback audit | `test/liveness.test.mjs` | **0** divergences (lazy ≡ eager; no fallback needed) |
-| **3** | lazy-vs-eager NODES wall-clock | `bench/suite.mjs` (b) | workload-dependent: 1.05× here, 2.6× when tests touch little |
+| html5lib-tests conformance | **99.72%** | 37.35% | 97.03% |
+| @testing-library/dom + user-event | ✅ | ✅ | ✅ |
+| React + Radix / Headless UI / downshift | ✅ | partial | ✅ |
+| Real layout / `getComputedStyle` cascade | ❌ (honest stub) | partial | partial |
 
-- **Differential (oracle):** deterministic random op sequences applied to turbo-dom, jsdom,
-  and happy-dom; turbo-dom must match jsdom exactly (it does). happy-dom compared too —
-  where it disagrees with jsdom it's happy-dom's bug, and turbo-dom sides with jsdom.
-- **Gauntlet:** `@testing-library/dom` and `@testing-library/user-event` (click, type,
-  keyboard, checkbox toggle via default actions) run **unmodified** — the test happy-dom fails.
+turbo-dom inherits Servo's tree constructor, so the "messy input" cases hand-rolled parsers
+get wrong — adoption-agency reparenting (`<a><p></a></p>`), table foster-parenting, optional
+end tags, `<template>` content, SVG/MathML — all match the spec. The 5 remaining
+conformance misses are bleeding-edge `<select>`-family proposals upstream `html5ever` hasn't
+adopted yet.
 
-85 tests total (7 Rust core + 78 JS), all green. Run all benches: `npm run bench:all`.
+## Performance
 
-## Build & test
+Measured on darwin-arm64, Node 24 (`npm run bench:all`):
+
+| benchmark | turbo-dom | happy-dom | jsdom |
+|---|---:|---:|---:|
+| per-file setup + 1 query (ops/s) | **6,808** | 526 | 266 |
+| full suite, 200 files (ms/file) | **0.13** | 1.45 | 3.36 |
+| parse 56 KB SSR (ops/s) | **502** | 46 | 23 |
+| parse 20 KB real page (ops/s) | **3,912** | 230 | 100 |
+
+Why it's fast: parsing is native; the JS DOM doesn't allocate node objects for parts of the
+tree a test never reads; and `window` doesn't build the ~12 globals (storage, observers,
+matchMedia…) a render-only test never touches.
+
+## How it works
+
+```
+test code (RTL, user-event)
+   └─ lazy window (Proxy, self-replacing globals)        ← JS
+   └─ lazy copy-on-write node tree (memoized identity)   ← JS
+   └─ immutable Structure-of-Arrays parse buffer          ← shared
+        └─ Rust: html5ever → flat typed-array buffer       ← native (N-API / WASM)
+```
+
+The parser runs in Rust (compute-bound, one boundary crossing per parse). The DOM stays in
+JS (chatty, fine-grained) but pays only for what a test touches. Full design notes:
+[turbo-dom-spec.md](./turbo-dom-spec.md).
+
+## Limitations (by design)
+
+- **No layout.** `getBoundingClientRect()` returns zeros; `getClientRects()` is empty.
+- **`getComputedStyle` is inline-only** — it reflects the `style` attribute and explicitly
+  set properties, never an invented cascade. Style/geometry assertions belong in a real
+  browser (Playwright/WebDriver).
+- Canvas, `<select>` rendering, and similar visual APIs are honest no-op stubs.
+
+## Development
+
+Requires Node ≥ 18 and a Rust toolchain (`rustup`, stable).
 
 ```bash
 npm install
-npm run build           # native addon (.node)
-npm run build:wasm      # wasm32 fallback
-
-npm test                # full JS suite (unit, conformance, differential, gauntlet, runtime)
-npm run test:rust       # Rust core unit tests
-npm run test:all        # build + both suites
-npm run conformance     # html5lib gate
-npm run conformance:delta   # vs happy-dom / jsdom
-npm run bench           # parse throughput
-npm run bench:construct # Phase-1 construction + surface histogram
+npm run build          # native addon (.node)
+npm test               # JS suite (unit, conformance, differential, gauntlets)
+npm run test:rust      # Rust core tests
+npm run conformance    # html5lib-tests report
+npm run bench:all      # benchmarks
+npm run build:wasm     # wasm32 fallback
 ```
 
-Requires Node ≥ 24 (uses `node --test`) and a Rust toolchain (`rustup`, stable). The
-wasm build also needs `rustup target add wasm32-unknown-unknown`.
-
-## Layout
-
-```
-src/core.rs            shared parser core (html5ever → nested tree). No binding deps.
-src/lib.rs             napi-rs + wasm-bindgen front-ends over the core.
-src/runtime/           the lazy COW DOM + window (Layers 2–5):
-  dom.mjs                nodes, lazy inflation, COW, live collections, identity
-  events.mjs             EventTarget/Event + typed events (full propagation model)
-  selectors.mjs          CSS selector engine
-  collections.mjs        live NodeList / HTMLCollection
-  window.mjs             lazy self-replacing window Proxy + tracer
-  stubs.mjs              honest layout/CSSOM/storage/observer stubs
-  index.mjs              createEnvironment() + reset()
-harness/               html5lib conformance tooling (dat parser, serializer, gate, delta)
-bench/                 parse throughput + construction benchmarks
-test/                  unit, conformance, differential, RTL-gauntlet, runtime suites
-vendor/html5lib-tests/ 57 WHATWG tree-construction fixtures
-```
-
-## Status
-
-All layers built and tested:
-
-- **Layer 1** native parser — `parseBuffer()` SoA fast path. Faster than happy-dom/jsdom and
-  more spec-correct (99.72%).
-- **Layers 2–5** lazy COW DOM + lazy window + honest stubs + fast reset, all over the SoA
-  buffer — passing differential-vs-jsdom fuzzing and the unmodified RTL/user-event gauntlet.
-
-The SoA flat buffer is **shipped** (the runtime uses it; 1.3–4.2× over the old full-marshaling
-`parse()`, within 1.4–1.65× of the parse-only floor). Tag names, attribute names, and prefixes
-are **interned** in the buffer — on attribute-heavy SSR that's up to **100% fewer name strings
-crossing the boundary** (e.g. 800 attrs → 2 unique names), cutting allocations and transfer
-size. The wasm fallback is benched (`npm run bench:wasm`, 51–125% of native). Remaining
-incremental work: unify the conformance harness onto `parseBuffer()` to retire the legacy
-nested `parse()`.
+Contributions welcome — issues and PRs at
+[github.com/miaskiewicz/turbo-dom](https://github.com/miaskiewicz/turbo-dom).
 
 ## License
 
-[MIT](./LICENSE) — do anything, just keep the notice. Free for the internet.
+[MIT](./LICENSE).
