@@ -177,6 +177,11 @@ export class EventTarget {
 
     event.eventPhase = PHASE_NONE;
     event.currentTarget = null;
+
+    // default actions (checkbox toggle, label→control, etc.) unless prevented
+    if (!event.defaultPrevented && typeof this.__runDefaultAction === 'function') {
+      this.__runDefaultAction(event);
+    }
     return !event.defaultPrevented;
   }
 }

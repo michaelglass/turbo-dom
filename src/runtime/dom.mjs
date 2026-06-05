@@ -337,6 +337,18 @@ export class Element extends Node {
   }
 
   click() { this.dispatchEvent(new Event('click', { bubbles: true, cancelable: true })); }
+  // default actions applied post-dispatch when not preventDefault'd
+  __runDefaultAction(e) {
+    if (e.type !== 'click') return;
+    if (this.localName === 'input') {
+      const t = this.getAttribute('type');
+      if (t === 'checkbox') this.checked = !this.checked;
+      else if (t === 'radio') this.checked = true;
+    } else if (this.localName === 'label') {
+      const c = this.control;
+      if (c && c !== e.target) c.click();
+    }
+  }
   focus() { this.ownerDocument.__setActive(this); }
   blur() { this.ownerDocument.__setActive(this.ownerDocument.body); }
   getBoundingClientRect() { return zeroRect(); }
@@ -346,12 +358,28 @@ export class Element extends Node {
 
 // form-ish value reflection for inputs (common in RTL/user-event)
 function defineValueProp(el) {
-  if (!('value' in el) && (el.localName === 'input' || el.localName === 'textarea' || el.localName === 'select' || el.localName === 'option')) {
+  const tag = el.localName;
+  if (!('value' in el) && (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'option')) {
     let v = el.getAttribute('value') ?? '';
-    Object.defineProperty(el, 'value', { get: () => v, set: (x) => { v = String(x); }, configurable: true });
-    if (el.localName === 'input') {
+    let selStart = null, selEnd = null, selDir = 'none';
+    Object.defineProperty(el, 'value', {
+      get: () => v,
+      set: (x) => { v = String(x); if (selStart !== null) { selStart = Math.min(selStart, v.length); selEnd = Math.min(selEnd, v.length); } },
+      configurable: true,
+    });
+    if (tag === 'input' || tag === 'textarea') {
+      // text selection API (user-event tracks the cursor through these)
+      Object.defineProperty(el, 'selectionStart', { get: () => selStart, set: (x) => { selStart = x; }, configurable: true });
+      Object.defineProperty(el, 'selectionEnd', { get: () => selEnd, set: (x) => { selEnd = x; }, configurable: true });
+      Object.defineProperty(el, 'selectionDirection', { get: () => selDir, set: (x) => { selDir = x; }, configurable: true });
+      el.setSelectionRange = (s, e, dir = 'none') => { selStart = s; selEnd = e; selDir = dir; };
+      el.select = () => { selStart = 0; selEnd = v.length; };
+    }
+    if (tag === 'input') {
       let checked = el.hasAttribute('checked');
       Object.defineProperty(el, 'checked', { get: () => checked, set: (x) => { checked = !!x; }, configurable: true });
+      Object.defineProperty(el, 'disabled', { get: () => el.hasAttribute('disabled'), set: (x) => { if (x) el.setAttribute('disabled', ''); else el.removeAttribute('disabled'); }, configurable: true });
+      Object.defineProperty(el, 'type', { get: () => el.getAttribute('type') || 'text', set: (x) => el.setAttribute('type', x), configurable: true });
     }
   }
 }
@@ -399,6 +427,53 @@ function collectByClass(root, classes) {
 
 function zeroRect() {
   return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() { return this; } };
+}
+
+// Range — functional enough for selection bookkeeping (user-event), zero geometry.
+class Range {
+  constructor(doc) {
+    this.__doc = doc;
+    this.startContainer = doc; this.endContainer = doc;
+    this.startOffset = 0; this.endOffset = 0; this.collapsed = true;
+  }
+  setStart(node, offset) { this.startContainer = node; this.startOffset = offset; this.__sync(); }
+  setEnd(node, offset) { this.endContainer = node; this.endOffset = offset; this.__sync(); }
+  setStartBefore(node) { this.setStart(node.parentNode, 0); }
+  setStartAfter(node) { this.setStart(node.parentNode, 0); }
+  setEndBefore(node) { this.setEnd(node.parentNode, 0); }
+  setEndAfter(node) { this.setEnd(node.parentNode, 0); }
+  selectNode(node) { this.startContainer = this.endContainer = node; this.__sync(); }
+  selectNodeContents(node) { this.startContainer = this.endContainer = node; this.startOffset = 0; this.endOffset = node.childNodes ? node.childNodes.length : 0; this.__sync(); }
+  collapse(toStart) { if (toStart) { this.endContainer = this.startContainer; this.endOffset = this.startOffset; } else { this.startContainer = this.endContainer; this.startOffset = this.endOffset; } this.collapsed = true; }
+  __sync() { this.collapsed = this.startContainer === this.endContainer && this.startOffset === this.endOffset; }
+  get commonAncestorContainer() { return this.startContainer; }
+  cloneRange() { const r = new Range(this.__doc); Object.assign(r, this); return r; }
+  cloneContents() { return this.__doc.createDocumentFragment(); }
+  deleteContents() {}
+  insertNode(node) { if (this.startContainer && this.startContainer.insertBefore) this.startContainer.insertBefore(node, this.startContainer.childNodes[this.startOffset] ?? null); }
+  surroundContents(node) { this.insertNode(node); }
+  getBoundingClientRect() { return zeroRect(); }
+  getClientRects() { return []; }
+  detach() {}
+}
+
+function makeSelection() {
+  let ranges = [];
+  return {
+    get rangeCount() { return ranges.length; },
+    get isCollapsed() { return ranges.every((r) => r.collapsed); },
+    get anchorNode() { return ranges[0] ? ranges[0].startContainer : null; },
+    get focusNode() { return ranges[0] ? ranges[0].endContainer : null; },
+    get anchorOffset() { return ranges[0] ? ranges[0].startOffset : 0; },
+    get focusOffset() { return ranges[0] ? ranges[0].endOffset : 0; },
+    get type() { return ranges.length ? 'Range' : 'None'; },
+    addRange(r) { ranges.push(r); },
+    removeAllRanges() { ranges = []; },
+    removeRange(r) { ranges = ranges.filter((x) => x !== r); },
+    getRangeAt(i) { return ranges[i]; },
+    collapse() {}, extend() {}, selectAllChildren() {}, setBaseAndExtent() {}, empty() { ranges = []; },
+    toString() { return ''; },
+  };
 }
 
 // minimal inline-style CSSOM (honest: only inline + explicitly set props)
@@ -541,6 +616,8 @@ export class Document extends Node {
   createComment(data) { return new Comment(this, String(data)); }
   createDocumentFragment() { return new DocumentFragment(this); }
   createEvent() { return new Event(''); }
+  createRange() { return new Range(this); }
+  getSelection() { if (!this.__selection) this.__selection = makeSelection(); return this.__selection; }
   importNode(node, deep) { return node.cloneNode(deep); }
   adoptNode(node) { if (node.parentNode) node.parentNode.removeChild(node); node.ownerDocument = this; return node; }
 

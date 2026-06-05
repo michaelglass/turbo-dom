@@ -18,13 +18,17 @@
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "build:wasm": "cargo build --release --no-default-features --features wasm-bind --target wasm32-unknown-unknown",
+    "build:wasm:pkg": "wasm-pack build --target nodejs --out-dir pkg --no-default-features --features wasm-bind",
+    "bench:wasm": "node bench/wasm.mjs",
     "test": "node --test 'test/*.mjs'",
     "test:rust": "cargo test --lib",
     "test:all": "npm run build && npm run test:rust && npm test",
     "conformance": "node harness/conformance.mjs",
     "conformance:delta": "node harness/delta.mjs",
     "bench": "node bench/parse.mjs",
-    "bench:construct": "node bench/construct.mjs"
+    "bench:construct": "node bench/construct.mjs",
+    "bench:suite": "node bench/suite.mjs",
+    "bench:all": "node bench/parse.mjs && node bench/construct.mjs && node bench/suite.mjs && node bench/wasm.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.4",

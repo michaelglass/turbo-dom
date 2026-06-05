@@ -13,9 +13,21 @@ import {
   Node, Element, Text, Comment, Document, DocumentFragment, DocumentType, Event, CustomEvent,
 } from './dom.mjs';
 import {
+  EventTarget,
   UIEvent, MouseEvent, PointerEvent, KeyboardEvent, InputEvent, FocusEvent,
   CompositionEvent, WheelEvent, TouchEvent, DragEvent, ProgressEvent,
 } from './events.mjs';
+
+// Minimal DataTransfer / clipboard primitives some libraries (user-event) need.
+class DataTransfer {
+  constructor() { this.__data = new Map(); this.dropEffect = 'none'; this.effectAllowed = 'all'; this.items = []; this.files = []; this.types = []; }
+  setData(fmt, data) { this.__data.set(fmt, String(data)); if (!this.types.includes(fmt)) this.types.push(fmt); }
+  getData(fmt) { return this.__data.get(fmt) ?? ''; }
+  clearData(fmt) { if (fmt) this.__data.delete(fmt); else this.__data.clear(); }
+}
+class ClipboardEvent extends Event {
+  constructor(type, init = {}) { super(type, init); this.clipboardData = init.clipboardData ?? new DataTransfer(); }
+}
 
 export function createWindow(document, { url = 'http://localhost/' } = {}) {
   const touched = new Set();
@@ -29,9 +41,11 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     origin: new URL(url).origin,
     // constructors are cheap class refs — expose eagerly
     Node, Element, Text, Comment, Document, DocumentFragment, DocumentType,
+    EventTarget,
     Event, CustomEvent,
     UIEvent, MouseEvent, PointerEvent, KeyboardEvent, InputEvent, FocusEvent,
-    CompositionEvent, WheelEvent, TouchEvent, DragEvent, ProgressEvent,
+    CompositionEvent, WheelEvent, TouchEvent, DragEvent, ProgressEvent, ClipboardEvent,
+    DataTransfer,
     HTMLElement: Element, SVGElement: Element,
     URL, URLSearchParams,
     // timers delegate to the host (Node) — already lazy at the OS level
