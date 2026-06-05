@@ -354,8 +354,18 @@ export class Element extends Node {
   // builds the array from the SoA only when an attribute is first touched (many
   // elements are inflated for traversal but never have attrs read).
   __buildAttrs() { const doc = this.ownerDocument, buf = doc && doc.__buf; return (this.__attrIdx >= 0 && buf) ? buf.attrs(this.__attrIdx) : []; }
-  getAttribute(name) { const at = this.__attrs ?? (this.__attrs = this.__buildAttrs()); for (let i = 0; i < at.length; i++) if (at[i].name === name) return at[i].value; return null; }
-  hasAttribute(name) { const at = this.__attrs ?? (this.__attrs = this.__buildAttrs()); for (let i = 0; i < at.length; i++) if (at[i].name === name) return true; return false; }
+  getAttribute(name) {
+    const at = this.__attrs;
+    if (at !== undefined) { for (let i = 0; i < at.length; i++) if (at[i].name === name) return at[i].value; return null; }
+    const doc = this.ownerDocument, buf = doc && doc.__buf;        // lazy: read column, don't materialize
+    return (this.__attrIdx >= 0 && buf) ? buf.attrGet(this.__attrIdx, name) : null;
+  }
+  hasAttribute(name) {
+    const at = this.__attrs;
+    if (at !== undefined) { for (let i = 0; i < at.length; i++) if (at[i].name === name) return true; return false; }
+    const doc = this.ownerDocument, buf = doc && doc.__buf;
+    return (this.__attrIdx >= 0 && buf) ? buf.attrHas(this.__attrIdx, name) : false;
+  }
   getAttributeNames() { return (this.__attrs ?? (this.__attrs = this.__buildAttrs())).map((a) => a.name); }
   setAttribute(name, value) {
     if (this.__attrs === undefined) this.__attrs = this.__buildAttrs();

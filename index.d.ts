@@ -34,23 +34,13 @@ export declare function parseRaw(html: string): number
  * objects lazily from this — no eager full-tree allocation. The fast path.
  */
 export interface JsSoa {
-  nodeType: Uint8Array
-  ns: Uint8Array
-  tagId: Uint32Array
-  parent: Int32Array
-  firstChild: Int32Array
-  nextSib: Int32Array
-  textId: Int32Array
-  pubId: Int32Array
-  sysId: Int32Array
-  attrStart: Int32Array
-  attrCount: Uint16Array
-  attrNameId: Uint32Array
-  attrValue: Array<string>
-  attrPrefixId: Uint32Array
+  packed: Uint8Array
+  n: number
+  m: number
   tagNames: Array<string>
   attrNames: Array<string>
   attrPrefixes: Array<string>
+  attrValues: Array<string>
   strings: Array<string>
 }
 /** Parse a document into the SoA flat buffer (the fast runtime path). */

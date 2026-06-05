@@ -89,12 +89,13 @@ pub struct Soa {
     pub attr_count: Vec<u16>,  // attrs for this node
     // flat attr tables — names/prefixes interned (highly repetitive), values pooled
     pub attr_name_id: Vec<u32>, // index into attr_names
-    pub attr_value: Vec<String>,
+    pub attr_value_id: Vec<u32>, // index into attr_values (interned, deduped)
     pub attr_prefix_id: Vec<u32>, // index into attr_prefixes
     // string tables (interned, deduped)
     pub tag_names: Vec<String>,
     pub attr_names: Vec<String>,
     pub attr_prefixes: Vec<String>,
+    pub attr_values: Vec<String>, // interned attr value dictionary
     pub strings: Vec<String>,   // text/comment/doctype data, pooled
 }
 
@@ -103,6 +104,7 @@ struct SoaBuilder {
     tag_map: std::collections::HashMap<String, u32>,
     attr_name_map: std::collections::HashMap<String, u32>,
     attr_prefix_map: std::collections::HashMap<String, u32>,
+    attr_value_map: std::collections::HashMap<String, u32>,
 }
 
 impl SoaBuilder {
@@ -131,6 +133,15 @@ impl SoaBuilder {
         let id = self.soa.attr_prefixes.len() as u32;
         self.soa.attr_prefixes.push(prefix.to_string());
         self.attr_prefix_map.insert(prefix.to_string(), id);
+        id
+    }
+    fn intern_attr_value(&mut self, value: &str) -> u32 {
+        if let Some(&id) = self.attr_value_map.get(value) {
+            return id;
+        }
+        let id = self.soa.attr_values.len() as u32;
+        self.soa.attr_values.push(value.to_string());
+        self.attr_value_map.insert(value.to_string(), id);
         id
     }
     fn push_string(&mut self, s: &str) -> i32 {
@@ -184,12 +195,13 @@ impl SoaBuilder {
                 self.soa.tag_id[idx] = self.intern_tag(&name.local);
                 let borrowed = attrs.borrow();
                 if !borrowed.is_empty() {
-                    self.soa.attr_start[idx] = self.soa.attr_value.len() as i32;
+                    self.soa.attr_start[idx] = self.soa.attr_name_id.len() as i32;
                     self.soa.attr_count[idx] = borrowed.len() as u16;
                     for attr in borrowed.iter() {
                         let nid = self.intern_attr_name(&attr.name.local);
                         self.soa.attr_name_id.push(nid);
-                        self.soa.attr_value.push(attr.value.to_string());
+                        let vid = self.intern_attr_value(&attr.value);
+                        self.soa.attr_value_id.push(vid);
                         let pfx = attr.name.prefix.as_ref().map(|p| p.to_string()).unwrap_or_default();
                         let pid = self.intern_attr_prefix(&pfx);
                         self.soa.attr_prefix_id.push(pid);
@@ -252,6 +264,7 @@ pub fn parse_html_soa(html: &str) -> Soa {
         tag_map: std::collections::HashMap::new(),
         attr_name_map: std::collections::HashMap::new(),
         attr_prefix_map: std::collections::HashMap::new(),
+        attr_value_map: std::collections::HashMap::new(),
     };
     b.alloc(&dom.document, -1);
     b.soa

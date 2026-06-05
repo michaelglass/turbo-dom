@@ -71,48 +71,47 @@ mod napi_front {
 
     /// SoA flat buffer: structure as typed arrays, crossed once. JS inflates node
     /// objects lazily from this — no eager full-tree allocation. The fast path.
+    // All numeric columns packed into ONE little-endian byte blob (1 ArrayBuffer +
+    // zero-copy views in JS, vs 13 separate addon buffers + finalizers per parse).
+    // Layout — 4-byte block first (keeps every Int32/Uint32 view 4-aligned), then
+    // u16, then u8.  Length-N: tag_id,parent,first_child,next_sib,text_id,pub_id,
+    // sys_id,attr_start | Length-M: attr_name_id,attr_value_id,attr_prefix_id |
+    // u16 N: attr_count | u8 N: node_type, ns.  JS unpack must mirror this order.
     #[napi(object)]
     pub struct JsSoa {
-        pub node_type: Uint8Array,
-        pub ns: Uint8Array,
-        pub tag_id: Uint32Array,
-        pub parent: Int32Array,
-        pub first_child: Int32Array,
-        pub next_sib: Int32Array,
-        pub text_id: Int32Array,
-        pub pub_id: Int32Array,
-        pub sys_id: Int32Array,
-        pub attr_start: Int32Array,
-        pub attr_count: Uint16Array,
-        pub attr_name_id: Uint32Array,
-        pub attr_value: Vec<String>,
-        pub attr_prefix_id: Uint32Array,
+        pub packed: Uint8Array,
+        pub n: u32,
+        pub m: u32,
         pub tag_names: Vec<String>,
         pub attr_names: Vec<String>,
         pub attr_prefixes: Vec<String>,
+        pub attr_values: Vec<String>,
         pub strings: Vec<String>,
     }
 
     impl From<core::Soa> for JsSoa {
         fn from(s: core::Soa) -> Self {
+            let n = s.node_type.len();
+            let m = s.attr_name_id.len();
+            let mut buf: Vec<u8> = Vec::with_capacity(36 * n + 12 * m);
+            for col in [&s.tag_id] { for v in col.iter() { buf.extend_from_slice(&v.to_le_bytes()); } }
+            for col in [&s.parent, &s.first_child, &s.next_sib, &s.text_id, &s.pub_id, &s.sys_id, &s.attr_start] {
+                for v in col.iter() { buf.extend_from_slice(&v.to_le_bytes()); }
+            }
+            for col in [&s.attr_name_id, &s.attr_value_id, &s.attr_prefix_id] {
+                for v in col.iter() { buf.extend_from_slice(&v.to_le_bytes()); }
+            }
+            for v in s.attr_count.iter() { buf.extend_from_slice(&v.to_le_bytes()); }
+            buf.extend_from_slice(&s.node_type);
+            buf.extend_from_slice(&s.ns);
             JsSoa {
-                node_type: Uint8Array::new(s.node_type),
-                ns: Uint8Array::new(s.ns),
-                tag_id: Uint32Array::new(s.tag_id),
-                parent: Int32Array::new(s.parent),
-                first_child: Int32Array::new(s.first_child),
-                next_sib: Int32Array::new(s.next_sib),
-                text_id: Int32Array::new(s.text_id),
-                pub_id: Int32Array::new(s.pub_id),
-                sys_id: Int32Array::new(s.sys_id),
-                attr_start: Int32Array::new(s.attr_start),
-                attr_count: Uint16Array::new(s.attr_count),
-                attr_name_id: Uint32Array::new(s.attr_name_id),
-                attr_value: s.attr_value,
-                attr_prefix_id: Uint32Array::new(s.attr_prefix_id),
+                packed: Uint8Array::new(buf),
+                n: n as u32,
+                m: m as u32,
                 tag_names: s.tag_names,
                 attr_names: s.attr_names,
                 attr_prefixes: s.attr_prefixes,
+                attr_values: s.attr_values,
                 strings: s.strings,
             }
         }
