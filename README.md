@@ -14,7 +14,7 @@ npm install -D @miaskiewicz/turbo-dom
 
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
   Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
-- ⚡ **Faster than jsdom** — ~19× lower per-file setup, 11–39× faster HTML parsing.
+- ⚡ **Faster than jsdom** — ~23× lower per-file setup, ~6× on query-heavy DOM work, 18–37× faster HTML parsing.
 - 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros and
   `getComputedStyle` reflects only what you set. Geometry tests belong in a real browser.
 
@@ -102,16 +102,19 @@ adopted yet.
 
 Measured on darwin-arm64, Node 24 (`npm run bench:all`):
 
-| benchmark | turbo-dom | happy-dom | jsdom |
-|---|---:|---:|---:|
-| per-file setup + 1 query (ops/s) | **6,808** | 526 | 266 |
-| full suite, 200 files (ms/file) | **0.13** | 1.45 | 3.36 |
-| parse 56 KB SSR (ops/s) | **502** | 46 | 23 |
-| parse 20 KB real page (ops/s) | **3,912** | 230 | 100 |
+| benchmark | turbo-dom | happy-dom | jsdom | vs jsdom |
+|---|---:|---:|---:|---:|
+| per-file setup + 1 query (ops/s) | **5,950** | 611 | 260 | **22.9×** |
+| full suite, 200 files (ms/file) | **0.13** | 1.50 | 3.38 | **23.6×** |
+| query-heavy DOM work (iters/s) | **18,125** | — | 3,089 | **5.9×** |
+| parse 56 KB SSR (ops/s) | **478** | 43 | 26 | **18×** |
+| parse 20 KB real page (ops/s) | **4,203** | 190 | 114 | **37×** |
 
 Why it's fast: parsing is native; the JS DOM doesn't allocate node objects for parts of the
-tree a test never reads; and `window` doesn't build the ~12 globals (storage, observers,
-matchMedia…) a render-only test never touches.
+tree a test never reads; `window` doesn't build the ~12 globals (storage, observers,
+matchMedia…) a render-only test never touches; and the selector/match engine is allocation-free
+on the hot paths (no per-element `classList`/`split`/regex), so `querySelectorAll` and the
+`getElementsBy*` collections that RTL leans on stay cheap.
 
 ## How it works
 

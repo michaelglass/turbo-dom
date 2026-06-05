@@ -83,8 +83,17 @@ function parseComplex(src) {
   return { compounds, combinators };
 }
 
+// parsed-selector cache: querySelector(All)/matches re-run the same selector
+// strings constantly; parsing once and reusing is a large win on query-heavy
+// suites. Bounded so a pathological generator can't grow it without limit.
+const __selectorCache = new Map();
 export function parseSelectorList(selector) {
-  return splitTopLevel(selector, ',').map((s) => parseComplex(s.trim()));
+  const hit = __selectorCache.get(selector);
+  if (hit !== undefined) return hit;
+  const parsed = splitTopLevel(selector, ',').map((s) => parseComplex(s.trim()));
+  if (__selectorCache.size > 10000) __selectorCache.clear();
+  __selectorCache.set(selector, parsed);
+  return parsed;
 }
 
 function splitTopLevel(s, sep) {
@@ -106,9 +115,10 @@ function elementChildren(node) {
 }
 
 function matchAttr(el, a) {
-  if (!el.hasAttribute(a.name)) return false;
+  const raw = el.getAttribute(a.name);   // single lookup (null = absent)
+  if (raw === null) return false;
   if (a.op === null) return true;
-  const v = el.getAttribute(a.name) ?? '';
+  const v = raw;
   const t = a.value ?? '';
   switch (a.op) {
     case '=': return v === t;
@@ -211,11 +221,32 @@ function nextElement(el) {
   return n || null;
 }
 
+// allocation-free "does the class attribute contain this whole-word class"
+function hasClass(cn, cls) {
+  if (cn === cls) return true;
+  const L = cls.length;
+  let idx = cn.indexOf(cls);
+  while (idx !== -1) {
+    const before = idx === 0 || cn.charCodeAt(idx - 1) <= 32;
+    const after = idx + L === cn.length || cn.charCodeAt(idx + L) <= 32;
+    if (before && after) return true;
+    idx = cn.indexOf(cls, idx + 1);
+  }
+  return false;
+}
+
 function matchCompound(el, compound) {
   if (!el || el.nodeType !== 1) return false;
+  // cheapest checks first; tag/local is a plain property
   if (compound.tag && compound.tag !== '*' && el.localName !== compound.tag) return false;
   if (compound.id !== null && el.getAttribute('id') !== compound.id) return false;
-  for (const cls of compound.classes) if (!el.classList.contains(cls)) return false;
+  // classes: read the class attribute ONCE and test membership without
+  // allocating (no ClassList, no split, no padded copy) — dominated matching.
+  if (compound.classes.length) {
+    const cn = el.getAttribute('class');
+    if (!cn) return false;
+    for (const cls of compound.classes) if (!hasClass(cn, cls)) return false;
+  }
   for (const a of compound.attrs) if (!matchAttr(el, a)) return false;
   for (const p of compound.pseudos) if (!matchPseudo(el, p)) return false;
   return true;
@@ -268,13 +299,43 @@ export function matchesSelector(el, selector) {
   return list.some((cx) => matchComplex(el, cx));
 }
 
+// Fast paths for the overwhelmingly common simple selectors, skipping the
+// parse + per-element matchComplex machinery.
+const SIMPLE = /^\s*(#[\w-]+|\.[\w-]+|[a-zA-Z][\w-]*)\s*$/;
+function simpleMatcher(selector) {
+  const m = SIMPLE.exec(selector);
+  if (!m) return null;
+  const s = m[1];
+  if (s[0] === '#') { const id = s.slice(1); return (el) => el.getAttribute('id') === id; }
+  if (s[0] === '.') { const cls = s.slice(1); return (el) => el.classList.contains(cls); }
+  const tag = s.toLowerCase(); return (el) => el.localName === tag;
+}
+
+// child node array without allocating a filtered copy per call
+function rawChildren(node) {
+  return typeof node.__children === 'function' ? node.__children() : Array.from(node.childNodes || []);
+}
+
 export function querySelectorAll(root, selector) {
-  const list = parseSelectorList(selector);
+  const simple = simpleMatcher(selector);
   const out = [];
+  if (simple) {
+    const visit = (node) => {
+      const kids = rawChildren(node);
+      for (let i = 0; i < kids.length; i++) { const c = kids[i]; if (c.nodeType !== 1) continue; if (simple(c)) out.push(c); visit(c); }
+    };
+    visit(root);
+    return out;
+  }
+  const list = parseSelectorList(selector);
+  const single = list.length === 1 ? list[0] : null;
   const visit = (node) => {
-    for (const child of elementChildren(node)) {
-      if (list.some((cx) => matchComplex(child, cx))) out.push(child);
-      visit(child);
+    const kids = rawChildren(node);
+    for (let i = 0; i < kids.length; i++) {
+      const c = kids[i];
+      if (c.nodeType !== 1) continue;
+      if (single ? matchComplex(c, single) : list.some((cx) => matchComplex(c, cx))) out.push(c);
+      visit(c);
     }
   };
   visit(root);
@@ -282,18 +343,29 @@ export function querySelectorAll(root, selector) {
 }
 
 export function querySelector(root, selector) {
+  const simple = simpleMatcher(selector);
+  if (simple) {
+    const visit = (node) => {
+      const kids = rawChildren(node);
+      for (let i = 0; i < kids.length; i++) { const c = kids[i]; if (c.nodeType !== 1) continue; if (simple(c)) return c; const r = visit(c); if (r) return r; }
+      return null;
+    };
+    return visit(root);
+  }
   const list = parseSelectorList(selector);
-  let found = null;
+  const single = list.length === 1 ? list[0] : null;
   const visit = (node) => {
-    for (const child of elementChildren(node)) {
-      if (found) return;
-      if (list.some((cx) => matchComplex(child, cx))) { found = child; return; }
-      visit(child);
-      if (found) return;
+    const kids = rawChildren(node);
+    for (let i = 0; i < kids.length; i++) {
+      const c = kids[i];
+      if (c.nodeType !== 1) continue;
+      if (single ? matchComplex(c, single) : list.some((cx) => matchComplex(c, cx))) return c;
+      const r = visit(c);
+      if (r) return r;
     }
+    return null;
   };
-  visit(root);
-  return found;
+  return visit(root);
 }
 
 export const _internal = { parseComplex, parseSelectorList, matchCompound, matchComplex };

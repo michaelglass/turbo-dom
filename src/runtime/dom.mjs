@@ -300,8 +300,8 @@ export class Element extends Node {
   get namespaceURI() { return nsUri(this.__ns); }
 
   // ---- attributes ----
-  getAttribute(name) { const a = this.__attrs.find((x) => x.name === name); return a ? a.value : null; }
-  hasAttribute(name) { return this.__attrs.some((x) => x.name === name); }
+  getAttribute(name) { const at = this.__attrs; for (let i = 0; i < at.length; i++) if (at[i].name === name) return at[i].value; return null; }
+  hasAttribute(name) { const at = this.__attrs; for (let i = 0; i < at.length; i++) if (at[i].name === name) return true; return false; }
   getAttributeNames() { return this.__attrs.map((a) => a.name); }
   setAttribute(name, value) {
     const a = this.__attrs.find((x) => x.name === name);
@@ -726,25 +726,43 @@ function toNode(doc, n) { return typeof n === 'string' ? doc.createTextNode(n) :
 
 function collectByTag(root, tag) {
   const out = [];
+  const all = tag === '*';
   const visit = (node) => {
-    for (const c of node.__children()) {
-      if (c.nodeType === ELEMENT_NODE) {
-        if (tag === '*' || c.localName === tag) out.push(c);
-        visit(c);
-      }
+    const kids = node.__children();
+    for (let i = 0; i < kids.length; i++) {
+      const c = kids[i];
+      if (c.nodeType !== ELEMENT_NODE) continue;
+      if (all || c.localName === tag) out.push(c);
+      visit(c);
     }
   };
   visit(root);
   return out;
 }
+// allocation-free whole-word class membership (no ClassList, no split)
+function elHasClass(el, cls) {
+  const cn = el.getAttribute('class');
+  if (!cn) return false;
+  if (cn === cls) return true;
+  const L = cls.length;
+  let idx = cn.indexOf(cls);
+  while (idx !== -1) {
+    if ((idx === 0 || cn.charCodeAt(idx - 1) <= 32) && (idx + L === cn.length || cn.charCodeAt(idx + L) <= 32)) return true;
+    idx = cn.indexOf(cls, idx + 1);
+  }
+  return false;
+}
 function collectByClass(root, classes) {
   const out = [];
   const visit = (node) => {
-    for (const c of node.__children()) {
-      if (c.nodeType === ELEMENT_NODE) {
-        if (classes.every((cl) => c.classList.contains(cl))) out.push(c);
-        visit(c);
-      }
+    const kids = node.__children();
+    for (let i = 0; i < kids.length; i++) {
+      const c = kids[i];
+      if (c.nodeType !== ELEMENT_NODE) continue;
+      let ok = true;
+      for (let j = 0; j < classes.length; j++) if (!elHasClass(c, classes[j])) { ok = false; break; }
+      if (ok) out.push(c);
+      visit(c);
     }
   };
   visit(root);

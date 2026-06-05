@@ -50,6 +50,27 @@ Toolchain: Node ≥ 24, Rust stable via rustup (`source $HOME/.cargo/env` if car
   `prefix` ("xlink" etc). The serializer renders `<svg svg>` and `xlink href="…"`.
 - **Fragment context:** `parseFragment(html, context)` where context is `"td"` or namespaced
   `"svg path"` / `"math ms"`. Empty → body.
+- **Hot paths are allocation-free — keep them that way.** `querySelectorAll`/`querySelector`/
+  `getElementsByTagName`/`getElementsByClassName` and selector matching MUST NOT allocate per
+  element: no `el.classList` (allocates a ClassList + splits), no `Array.find`/`.some`/`.filter`
+  closures, no regex, no per-node filtered child arrays. Use the `hasClass`/`elHasClass`
+  whole-word string scan, index loops over `__children()`, and the for-loop `getAttribute`.
+  This is what makes query-heavy RTL suites ~6× jsdom; a stray `classList` in a matcher tanks it.
+- **Selector parse cache** (`__selectorCache` in selectors.mjs) memoizes selector STRING → AST.
+  Pure (DOM-independent) → no mutation invalidation. Never cache *results* without it.
+
+## Benchmarks
+
+```bash
+npm run bench           # parse throughput (parseBuffer vs parse5/happy-dom/jsdom)
+npm run bench:construct # per-file construction + surface-usage histogram
+npm run bench:suite     # 200-file suite wall-clock; lazy-vs-eager nodes/window
+npm run bench:query     # query-heavy DOM work (RTL-style) vs jsdom
+npm run bench:wasm      # wasm vs native parseBuffer
+npm run bench:all       # all of the above
+```
+Latest (darwin-arm64, Node 24): ~23× jsdom per-file setup, ~6× query-heavy, 18–37× parse.
+Numbers in README.md — refresh both if you touch the runtime hot paths.
 
 ## Conformance gate
 
