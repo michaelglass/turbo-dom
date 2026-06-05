@@ -1,6 +1,6 @@
 // Phase 1 benchmark: "is per-file construction the cost?" — cold environment
-// construction + a typical light test, gr0gdom (lazy) vs jsdom vs happy-dom.
-// Plus the lazy-vs-eager split within gr0gdom and a surface-usage histogram.
+// construction + a typical light test, turbodom (lazy) vs jsdom vs happy-dom.
+// Plus the lazy-vs-eager split within turbodom and a surface-usage histogram.
 
 import { createRequire } from 'node:module';
 import { createEnvironment } from '../src/runtime/index.mjs';
@@ -31,11 +31,11 @@ const lightHappy = () => { const w = new Window(); const doc = new w.DOMParser()
 console.log('\nPhase 1 — cold per-file construction + 1 light query (ops/sec, higher better)\n');
 const f = bench(lightFast), j = bench(lightJsdom), h = bench(lightHappy);
 const row = (name, v) => console.log(name.padEnd(12), Math.round(v).toLocaleString().padStart(10), (v / j).toFixed(2).padStart(7) + 'x jsdom');
-row('gr0gdom', f); row('jsdom', j); row('happy-dom', h);
-console.log(`\ngr0gdom is ${(f / j).toFixed(1)}x jsdom and ${(f / h).toFixed(1)}x happy-dom on the light-test path.`);
+row('turbodom', f); row('jsdom', j); row('happy-dom', h);
+console.log(`\nturbodom is ${(f / j).toFixed(1)}x jsdom and ${(f / h).toFixed(1)}x happy-dom on the light-test path.`);
 
-// Lazy vs eager WITHIN gr0gdom: same construction, touch little vs touch everything.
-console.log('\nLazy payoff inside gr0gdom (ops/sec)\n');
+// Lazy vs eager WITHIN turbodom: same construction, touch little vs touch everything.
+console.log('\nLazy payoff inside turbodom (ops/sec)\n');
 const touchOne = () => { const e = createEnvironment(HTML); return e.document.querySelector('#app').id; };
 const touchAll = () => {
   const e = createEnvironment(HTML);

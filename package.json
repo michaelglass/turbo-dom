@@ -1,11 +1,11 @@
 {
-  "name": "gr0gdom-parser",
+  "name": "turbodom-parser",
   "version": "0.0.1",
-  "description": "html5ever-backed native parser for gr0gdom (Layer 1)",
+  "description": "html5ever-backed native parser for turbodom (Layer 1)",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
-    "name": "gr0gdom-parser",
+    "name": "turbodom-parser",
     "triples": {
       "defaults": true,
       "additional": [

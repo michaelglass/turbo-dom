@@ -1,5 +1,5 @@
 // Adapters that drive happy-dom and jsdom through the SAME html5lib-tests gate,
-// so conformance is measured apples-to-apples against gr0gdom.
+// so conformance is measured apples-to-apples against turbodom.
 //
 // Each adapter parses a fixture (document or fragment-in-context) into a real DOM,
 // then serializes it with one generic standard-DOM walker into html5lib dump format.
