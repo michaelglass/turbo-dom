@@ -385,6 +385,10 @@ export class Element extends Node {
   }
   get defaultValue() { return this.getAttribute('value') ?? ''; }
   set defaultValue(v) { this.setAttribute('value', v); }
+  get valueAsNumber() { const v = this.value; return v === '' || v == null ? NaN : Number(v); }
+  set valueAsNumber(n) { this.value = String(n); }
+  get valueAsDate() { const v = this.value; const d = v ? new Date(v) : null; return d && !isNaN(d) ? d : null; }
+  set valueAsDate(d) { this.value = d instanceof Date ? d.toISOString().slice(0, 10) : ''; }
 
   get selectionStart() { return this.__selStart ?? null; }
   set selectionStart(v) { this.__selStart = v; }
@@ -424,7 +428,17 @@ export class Element extends Node {
 
   // option
   get selected() { return this.__selected !== undefined ? this.__selected : this.hasAttribute('selected'); }
-  set selected(x) { this.__selected = !!x; }
+  set selected(x) {
+    this.__selected = !!x;
+    // single-select: selecting one option deselects the others (exclusive)
+    if (x && this.localName === 'option') {
+      let sel = this.parentNode;
+      while (sel && sel.localName !== 'select') sel = sel.parentNode;
+      if (sel && !sel.multiple) {
+        for (const o of sel.getElementsByTagName('option')) if (o !== this) o.__selected = false;
+      }
+    }
+  }
   get defaultSelected() { return this.hasAttribute('selected'); }
   get text() { return this.textContent; }
   set text(v) { this.textContent = v; }
@@ -513,14 +527,43 @@ export class Element extends Node {
   }
 
   click() { this.dispatchEvent(new Event('click', { bubbles: true, cancelable: true })); }
+  // pre-click activation (runs BEFORE click listeners; undone if preventDefault)
+  __preClickActivation() {
+    if (this.localName !== 'input') return null;
+    const t = (this.getAttribute('type') || 'text').toLowerCase();
+    // Write the internal field directly — NOT via the `checked` setter, which
+    // React wraps with its value-tracker. Going through the setter would update
+    // React's tracked value too, hiding the change and suppressing onChange.
+    if (t === 'checkbox') {
+      const old = this.checked; this.__checked = !old;
+      return { undo: () => { this.__checked = old; } };
+    }
+    if (t === 'radio') {
+      if (this.checked) return null;
+      const group = this.__radioGroup();
+      const prev = group.find((r) => r.checked) || null;
+      group.forEach((r) => { r.__checked = false; });
+      this.__checked = true;
+      return { undo: () => { this.__checked = false; if (prev) prev.__checked = true; } };
+    }
+    return null;
+  }
+  __radioGroup() {
+    const name = this.getAttribute('name');
+    let root = this; while (root.parentNode) root = root.parentNode;
+    const form = this.closest && this.closest('form');
+    const scope = form || root;
+    if (!name) return [this];
+    return (scope.getElementsByTagName ? Array.from(scope.getElementsByTagName('input')) : [])
+      .filter((i) => i.localName === 'input' && (i.getAttribute('type') || '').toLowerCase() === 'radio' && i.getAttribute('name') === name);
+  }
+
   // default actions applied post-dispatch when not preventDefault'd
   __runDefaultAction(e) {
     if (e.type !== 'click') return;
     if (this.localName === 'input') {
       const t = (this.getAttribute('type') || 'text').toLowerCase();
-      if (t === 'checkbox') this.checked = !this.checked;
-      else if (t === 'radio') this.checked = true;
-      else if (t === 'submit') { const f = this.closest('form'); if (f) f.requestSubmit(); }
+      if (t === 'submit') { const f = this.closest('form'); if (f) f.requestSubmit(); }
     } else if (this.localName === 'button') {
       const t = (this.getAttribute('type') || 'submit').toLowerCase();
       if (t === 'submit') { const f = this.closest('form'); if (f) f.requestSubmit(); }
@@ -779,9 +822,14 @@ function makeStyle(el) {
   return new Proxy({}, {
     get(_t, key) {
       if (key === 'getPropertyValue') return (p) => parse().get(p) ?? '';
+      if (key === 'getPropertyPriority') return () => ''; // we don't model !important
       if (key === 'setProperty') return (p, v) => { const m = parse(); m.set(p, v); write(m); };
       if (key === 'removeProperty') return (p) => { const m = parse(); const v = m.get(p) ?? ''; m.delete(p); write(m); return v; };
+      if (key === 'item') return (i) => [...parse().keys()][i] ?? '';
+      if (key === 'length') return parse().size;
       if (key === 'cssText') return el.getAttribute('style') || '';
+      if (key === 'cssFloat') return parse().get('float') ?? '';
+      if (key === Symbol.iterator) { const keys = [...parse().keys()]; return keys[Symbol.iterator].bind(keys); }
       if (typeof key !== 'string') return undefined;
       return parse().get(kebab(key)) ?? '';
     },
@@ -789,6 +837,7 @@ function makeStyle(el) {
       if (key === 'cssText') { el.setAttribute('style', String(value)); return true; }
       const m = parse(); m.set(kebab(key), String(value)); write(m); return true;
     },
+    has(_t, key) { return typeof key === 'string'; },
   });
 }
 const kebab = (s) => s.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());

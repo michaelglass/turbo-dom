@@ -6,6 +6,7 @@ export default defineConfig({
     include: ['test-vitest/**/*.test.{js,jsx}'],
     // turbo-dom environment (file-path form; works on vitest 1–4)
     environment: fileURLToPath(new URL('../src/environment/vitest.mjs', import.meta.url)),
+    setupFiles: [fileURLToPath(new URL('./setup.js', import.meta.url))],
     environmentOptions: { turboDom: { url: 'http://localhost/' } },
   },
 });

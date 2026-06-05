@@ -153,6 +153,13 @@ export class EventTarget {
     event._path = this.__eventPath();
     const path = event._path;
 
+    // pre-click activation (WHATWG): checkbox/radio toggle BEFORE click listeners
+    // run, so React's change detection sees the new value. Undone if preventDefault.
+    let activation = null;
+    if (event.type === 'click' && typeof this.__preClickActivation === 'function') {
+      activation = this.__preClickActivation();
+    }
+
     const invoke = (node, phase) => {
       const list = node.__listeners && node.__listeners.get(event.type);
       if (!list || list.length === 0) return;
@@ -196,7 +203,10 @@ export class EventTarget {
     event.eventPhase = PHASE_NONE;
     event.currentTarget = null;
 
-    // default actions (checkbox toggle, label→control, etc.) unless prevented
+    // canceled activation: undo the pre-click toggle if default was prevented
+    if (activation && event.defaultPrevented) activation.undo();
+
+    // remaining default actions (label→control, form submit) unless prevented
     if (!event.defaultPrevented && typeof this.__runDefaultAction === 'function') {
       this.__runDefaultAction(event);
     }
