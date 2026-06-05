@@ -434,6 +434,16 @@ export class Element extends Node {
   set placeholder(x) { this.setAttribute('placeholder', x); }
   get href() { return this.getAttribute('href') ?? ''; }
   set href(x) { this.setAttribute('href', x); }
+  get download() { return this.getAttribute('download') ?? ''; }
+  set download(x) { this.setAttribute('download', x); }
+  get rel() { return this.getAttribute('rel') ?? ''; }
+  set rel(x) { this.setAttribute('rel', x); }
+  get referrerPolicy() { return this.getAttribute('referrerpolicy') ?? ''; }
+  set referrerPolicy(x) { this.setAttribute('referrerpolicy', x); }
+  get src() { return this.getAttribute('src') ?? ''; }
+  set src(x) { this.setAttribute('src', x); }
+  get alt() { return this.getAttribute('alt') ?? ''; }
+  set alt(x) { this.setAttribute('alt', x); }
 
   // option
   get selected() { return this.__selected !== undefined ? this.__selected : this.hasAttribute('selected'); }

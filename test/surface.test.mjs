@@ -137,3 +137,20 @@ test('XMLHttpRequest constructs + has the expected shape', () => {
   assert.equal(xhr.readyState, 1);
   assert.equal(opened, true);
 });
+
+test('positional pseudo-classes + anchor.download reflection', () => {
+  const { document } = fresh();
+  const f = document.getElementById('root');
+  f.innerHTML = '<button>a</button><button>b</button><button>c</button>';
+  assert.equal(f.querySelector('button:nth-of-type(1)').textContent, 'a');
+  assert.equal(f.querySelector('button:nth-of-type(2)').textContent, 'b');
+  assert.equal(f.querySelector('button:nth-child(3)').textContent, 'c');
+  assert.equal(f.querySelector('button:first-of-type').textContent, 'a');
+  assert.equal(f.querySelector('button:last-of-type').textContent, 'c');
+  assert.equal(f.querySelectorAll('button:nth-child(odd)').length, 2);
+  const a = document.createElement('a');
+  a.download = 'tpl.csv'; a.rel = 'noopener';
+  assert.equal(a.download, 'tpl.csv');
+  assert.equal(a.getAttribute('download'), 'tpl.csv');
+  assert.equal(a.rel, 'noopener');
+});

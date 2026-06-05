@@ -153,13 +153,51 @@ function matchPseudo(el, p) {
       return !(el.hasAttribute('readonly') || el.readOnly);
     case 'selected':
       return !!el.selected;
-    case 'only-of-type':
+    // positional pseudo-classes (1-based, support An+B / odd / even)
+    case 'nth-child':
+      return nthMatch(p.arg, siblingIndex(el) + 1);
+    case 'nth-last-child':
+      return nthMatch(p.arg, siblingCount(el) - siblingIndex(el));
+    case 'nth-of-type':
+      return nthMatch(p.arg, typeIndex(el) + 1);
+    case 'nth-last-of-type':
+      return nthMatch(p.arg, typeCount(el) - typeIndex(el));
     case 'first-of-type':
+      return typeIndex(el) === 0;
     case 'last-of-type':
-      return true; // best-effort: rarely load-bearing in tests
+      return typeIndex(el) === typeCount(el) - 1;
+    case 'only-of-type':
+      return typeCount(el) === 1;
     default:
       return false; // unknown pseudo: never matches (honest, not a silent true)
   }
+}
+
+function elementSiblings(el) {
+  const p = el.parentNode;
+  if (!p) return [el];
+  const kids = typeof p.__children === 'function' ? p.__children() : Array.from(p.childNodes || []);
+  return kids.filter((n) => n.nodeType === 1);
+}
+function siblingIndex(el) { return elementSiblings(el).indexOf(el); }
+function siblingCount(el) { return elementSiblings(el).length; }
+function typeIndex(el) { return elementSiblings(el).filter((n) => n.localName === el.localName).indexOf(el); }
+function typeCount(el) { return elementSiblings(el).filter((n) => n.localName === el.localName).length; }
+
+// match An+B / odd / even / integer against a 1-based index
+function nthMatch(arg, index) {
+  const a0 = String(arg || '').trim().toLowerCase();
+  if (a0 === 'odd') return index % 2 === 1;
+  if (a0 === 'even') return index % 2 === 0;
+  const m = /^([+-]?\d*)n\s*([+-]\s*\d+)?$/.exec(a0.replace(/\s+/g, ''));
+  if (m) {
+    let a = m[1] === '' || m[1] === '+' ? 1 : m[1] === '-' ? -1 : parseInt(m[1], 10);
+    const b = m[2] ? parseInt(m[2].replace(/\s/g, ''), 10) : 0;
+    if (a === 0) return index === b;
+    return (index - b) % a === 0 && (index - b) / a >= 0;
+  }
+  const n = parseInt(a0, 10);
+  return !Number.isNaN(n) && index === n;
 }
 
 function previousElement(el) {
