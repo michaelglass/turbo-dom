@@ -115,3 +115,24 @@ test('fallback audit: lazy DOM canon === full-eager canon across messy inputs (0
   }
   assert.equal(divergences, 0, 'lazy inflation never diverges from eager — no fallback needed');
 });
+
+test('query/getElementById caches invalidate on mutation', () => {
+  const { document } = createEnvironment('<!doctype html><body><ul><li>a</li></ul></body>');
+  const ul = document.querySelector('ul');
+  assert.equal(document.querySelectorAll('li').length, 1);   // caches
+  ul.appendChild(document.createElement('li'));               // mutate → bump version
+  assert.equal(document.querySelectorAll('li').length, 2);   // fresh, not stale
+  // getElementById invalidates on add + attribute change + remove
+  const x = document.createElement('div'); x.id = 'x'; ul.appendChild(x);
+  assert.equal(document.getElementById('x'), x);
+  x.setAttribute('id', 'y');
+  assert.equal(document.getElementById('x'), null);
+  assert.equal(document.getElementById('y'), x);
+  x.remove();
+  assert.equal(document.getElementById('y'), null);
+  // innerHTML/textContent also invalidate
+  ul.innerHTML = '<li class="z"></li><li class="z"></li>';
+  assert.equal(document.querySelectorAll('.z').length, 2);
+  ul.textContent = '';
+  assert.equal(document.querySelectorAll('.z').length, 0);
+});

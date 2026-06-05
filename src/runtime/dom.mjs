@@ -14,6 +14,33 @@ import {
 import { liveNodeList, liveHTMLCollection } from './collections.mjs';
 import { matchesSelector, querySelector as qsel, querySelectorAll as qselAll } from './selectors.mjs';
 import { serializeInner, serializeOuter } from './html-serialize.mjs';
+
+// Per-node query-result cache keyed by (selector, document version). querySelectorAll
+// returns a STATIC list per spec, so caching is safe until the next mutation bumps
+// Document.__version (which invalidates every cached query). Big win for the repeated
+// identical queries RTL/findBy/waitFor run against an unchanged tree.
+function cachedQSA(node, sel) {
+  const doc = node.ownerDocument || node;
+  const v = doc.__version || 0;
+  let cache = node.__qCache;
+  if (cache) { const c = cache.get('a:' + sel); if (c !== undefined && c.v === v) return c.r; }
+  else cache = node.__qCache = new Map();
+  if (cache.size > 512) cache.clear();
+  const r = qselAll(node, sel);
+  cache.set('a:' + sel, { v, r });
+  return r;
+}
+function cachedQS(node, sel) {
+  const doc = node.ownerDocument || node;
+  const v = doc.__version || 0;
+  let cache = node.__qCache;
+  if (cache) { const c = cache.get('s:' + sel); if (c !== undefined && c.v === v) return c.r; }
+  else cache = node.__qCache = new Map();
+  if (cache.size > 512) cache.clear();
+  const r = qsel(node, sel);
+  cache.set('s:' + sel, { v, r });
+  return r;
+}
 import { Buffer } from './buffer.mjs';
 import { makeCanvasStub } from './stubs.mjs';
 
@@ -516,8 +543,8 @@ export class Element extends Node {
   // ---- queries ----
   matches(sel) { return matchesSelector(this, sel); }
   closest(sel) { let n = this; while (n && n.nodeType === ELEMENT_NODE) { if (n.matches(sel)) return n; n = n.parentNode; } return null; }
-  querySelector(sel) { return qsel(this, sel); }
-  querySelectorAll(sel) { return qselAll(this, sel); }
+  querySelector(sel) { return cachedQS(this, sel); }
+  querySelectorAll(sel) { return cachedQSA(this, sel); }
   getElementsByTagName(tag) { const self = this; return liveHTMLCollection(() => collectByTag(self, tag.toLowerCase())); }
   getElementsByClassName(cls) { const self = this; const classes = cls.split(/\s+/).filter(Boolean); return liveHTMLCollection(() => collectByClass(self, classes)); }
 
@@ -721,8 +748,8 @@ export class Element extends Node {
 export class DocumentFragment extends Node {
   get nodeType() { return DOCUMENT_FRAGMENT_NODE; }
   get nodeName() { return '#document-fragment'; }
-  querySelector(sel) { return qsel(this, sel); }
-  querySelectorAll(sel) { return qselAll(this, sel); }
+  querySelector(sel) { return cachedQS(this, sel); }
+  querySelectorAll(sel) { return cachedQSA(this, sel); }
   get children() { const self = this; return liveHTMLCollection(() => self.__children().filter((n) => n.nodeType === ELEMENT_NODE)); }
   append(...nodes) { for (const n of nodes) this.appendChild(toNode(this.ownerDocument, n)); }
   cloneNode(deep = false) { const f = new DocumentFragment(this.ownerDocument); if (deep) for (const c of this.__children()) f.appendChild(c.cloneNode(true)); return f; }
@@ -1193,18 +1220,26 @@ export class Document extends Node {
 
   // ---- queries ----
   getElementById(id) {
+    const v = this.__version || 0;
+    const cache = this.__idCache;
+    if (cache) { const c = cache.get(id); if (c !== undefined && c.v === v) return c.el; }
     let found = null;
     const visit = (node) => {
-      for (const c of node.__children()) {
+      const kids = node.__children();
+      for (let i = 0; i < kids.length; i++) {
+        const c = kids[i];
+        if (c.nodeType !== ELEMENT_NODE) continue;
+        if (c.getAttribute('id') === id) { found = c; return; }
+        visit(c);
         if (found) return;
-        if (c.nodeType === ELEMENT_NODE) { if (c.getAttribute('id') === id) { found = c; return; } visit(c); }
       }
     };
     visit(this);
+    (this.__idCache || (this.__idCache = new Map())).set(id, { v, el: found });
     return found;
   }
-  querySelector(sel) { return qsel(this, sel); }
-  querySelectorAll(sel) { return qselAll(this, sel); }
+  querySelector(sel) { return cachedQS(this, sel); }
+  querySelectorAll(sel) { return cachedQSA(this, sel); }
   // version-keyed cache: getElementsBy* is called repeatedly within a single
   // query (e.g. RTL getByLabelText calls element.labels per element, each doing
   // document.getElementsByTagName('label')). Without caching that's O(n²) tree

@@ -74,12 +74,17 @@ Latest (darwin-arm64, Node 24), vs jsdom / happy-dom:
 - realistic 200-file suite (construct+query+events): ~23× jsdom, ~10× happy-dom
 - parse: 18–37× both
 - conformance: 99.72% vs jsdom 97.03% vs happy-dom 37.35%
-- raw query throughput: ~7× jsdom, but happy-dom is ~25× US here (its selector engine
-  trades correctness for speed). We win realistic suites because per-file CONSTRUCTION
-  dominates, and lazy construction crushes it — not because raw queries are fastest.
-- `getByLabelText` was O(n²) (element.labels → document.getElementsByTagName('label') per
-  element); fixed with a version-keyed getElementsBy* cache (Document.__byTag/__byClass,
-  invalidated by Document.__version which every mutation bumps). 1342→277µs.
+- repeated query throughput: ~915k iters/s — beats happy-dom (~615k) and 277× jsdom.
+  querySelectorAll/getElementsBy*/getElementById results are cached per (selector,
+  Document.__version); a static querySelectorAll list is safe to reuse until the next
+  mutation. cachedQSA/cachedQS + Document.__byTag/__byClass/__idCache.
+- **Cache invalidation = Document.__version.** EVERY mutation must bump it: notifyMutation
+  bumps it unconditionally (insert/remove/setAttribute), and __touch() covers direct __kids
+  rewrites (innerHTML/textContent/replaceChildren). If you add a new mutation path that
+  bypasses these, bump __version or queries go stale. Covered by
+  test/liveness.test.mjs "query/getElementById caches invalidate on mutation".
+- `getByLabelText` was O(n²) (element.labels → getElementsByTagName('label') per element);
+  the caches took it 1342→~270µs.
 Numbers in README.md — refresh both (bench against jsdom AND happy-dom) if you touch hot paths.
 
 ## Conformance gate

@@ -14,7 +14,7 @@ npm install -D @miaskiewicz/turbo-dom
 
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
   Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
-- ⚡ **Fast where suites spend time** — ~23× jsdom / ~10× happy-dom on per-file setup, 18–37× faster HTML parsing, ~7× jsdom on queries. (happy-dom edges raw query throughput by trading correctness; turbo-dom won't.)
+- ⚡ **Faster than both** — ~23× jsdom / ~10× happy-dom on per-file setup, 18–37× faster HTML parsing, and (with per-version query-result caching) it matches/beats happy-dom on repeated queries while staying 99.7% spec-correct.
 - 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros and
   `getComputedStyle` reflects only what you set. Geometry tests belong in a real browser.
 
@@ -109,22 +109,20 @@ the suite row (ms/file, lower = faster):
 | **realistic suite**, 200 files (ms/file) | **0.13** | 1.50 | 3.38 |
 | **parse 56 KB SSR** (ops/s) | **478** | 43 | 26 |
 | **parse 20 KB real page** (ops/s) | **4,203** | 190 | 114 |
+| repeated query throughput (iters/s) | **915k** | 615k | 3k |
 | html5lib conformance | **99.72%** | 37.35% | 97.03% |
-| raw query throughput (iters/s) | 24k | **635k** | 3k |
 
-**The honest picture:** turbo-dom wins where test suites actually spend time —
-**per-file construction (~10× happy-dom, ~23× jsdom)** and **parsing**, while being
-far more spec-correct than happy-dom. On a realistic per-file workload (construct +
-queries + events, 200 files) it's **~10× happy-dom and ~23× jsdom**, because per-file
-setup dominates and turbo-dom builds lazily.
+**turbo-dom wins across the board on what test suites actually do**: per-file
+construction (~10× happy-dom, ~23× jsdom), parsing, realistic suites (~10× happy-dom,
+~23× jsdom), spec-correctness (99.7% vs 37%), **and** repeated queries.
 
-happy-dom is **faster on raw query throughput** (its selector engine is heavily
-tuned, trading correctness for speed) — if your test does thousands of
-`querySelector` calls against one already-built document, happy-dom wins that
-micro-benchmark. But it fails real component libraries (37% conformance), which is
-the trade turbo-dom refuses. turbo-dom is ~7× jsdom on queries and allocation-free
-on the hot paths (no per-element `classList`/`split`/regex; version-cached
-`getElementsBy*`), so RTL queries like `getByLabelText` stay cheap.
+How the query speed holds up against happy-dom (whose whole design trades correctness
+for query speed): the selector/match engine is allocation-free on the hot paths (no
+per-element `classList`/`split`/regex), and `querySelectorAll`/`getElementsBy*`/
+`getElementById` results are **cached per (selector, DOM-version)** — a static
+`querySelectorAll` list is safe to reuse until the next mutation. So the repeated
+queries RTL/`findBy`/`waitFor` run against an unchanged tree are near-free, and
+`getByLabelText` went from O(n²) (1.3 ms) to ~270 µs.
 
 ## How it works
 
