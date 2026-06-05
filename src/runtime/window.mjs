@@ -64,6 +64,10 @@ class TurboFormData {
 function tagClass(matcher) {
   const test = typeof matcher === 'string' ? (n) => n === matcher : (n) => matcher.test(n);
   const C = function () { throw new TypeError('Illegal constructor'); };
+  // share Element.prototype so prototype-level spies/reads resolve (e.g.
+  // vi.spyOn(HTMLAnchorElement.prototype, 'click')); instanceof is decided by
+  // the tag matcher below, not the prototype chain.
+  C.prototype = Element.prototype;
   Object.defineProperty(C, Symbol.hasInstance, {
     value: (o) => o != null && o.nodeType === 1 && test(o.localName),
   });

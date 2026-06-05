@@ -7,3 +7,16 @@ test('3: window.scrollTo sees vi.stubGlobal', () => {
   expect(window).toBe(globalThis);
   vi.unstubAllGlobals();
 });
+
+test('A: vi.spyOn(HTMLAnchorElement.prototype, click) works (regression)', () => {
+  const clickSpy = vi.fn();
+  const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(clickSpy);
+  const a = document.createElement('a');
+  a.download = 'tpl.csv';
+  a.click();
+  expect(clickSpy).toHaveBeenCalled();
+  expect(a.download).toBe('tpl.csv');
+  expect(a instanceof HTMLAnchorElement).toBe(true);
+  expect(document.createElement('div') instanceof HTMLAnchorElement).toBe(false);
+  spy.mockRestore();
+});
