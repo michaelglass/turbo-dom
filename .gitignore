@@ -15,3 +15,6 @@ node_modules
 
 # personal publish cheat sheet (do not commit)
 NPM-PUBLISH-TURBODOM.md
+
+# napi-generated per-platform packages (built in CI)
+/npm

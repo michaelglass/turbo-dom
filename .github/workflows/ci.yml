@@ -112,9 +112,6 @@ jobs:
     needs: [build, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -122,19 +119,31 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
       - run: npm install --ignore-scripts
+
       - name: Download all prebuilt binaries
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Move binaries into per-platform npm dirs
+          # each build job uploaded `bindings-<triple>` containing one *.node
+
+      - name: Assemble per-platform npm packages
         run: |
           npx napi create-npm-dir -t .
-          npx napi artifacts --dir artifacts
-          ls -R npm || true
-      - name: Publish platform packages + main
+          # move each downloaded *.node into its npm/<triple>/ dir
+          find artifacts -name '*.node' -print -exec cp {} . \;
+          npx napi artifacts --dir artifacts || true
+          ls -R npm
+
+      - name: Publish platform packages then main
         run: |
-          for dir in npm/*; do
-            [ -d "$dir" ] && (cd "$dir" && npm publish --access public || true)
+          set -e
+          for dir in npm/*/; do
+            if ls "$dir"/*.node >/dev/null 2>&1; then
+              echo "publishing $dir"
+              (cd "$dir" && npm publish --access public)
+            else
+              echo "skip $dir (no binary)"
+            fi
           done
           npm publish --access public
         env:
