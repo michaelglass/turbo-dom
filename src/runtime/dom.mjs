@@ -191,15 +191,19 @@ export class Node extends EventTarget {
   }
   normalize() {
     const kids = this.__children();
+    let changed = false;
     for (let i = kids.length - 1; i > 0; i--) {
       if (kids[i].nodeType === TEXT_NODE && kids[i - 1].nodeType === TEXT_NODE) {
-        kids[i - 1]._data += kids[i].data; kids[i].parentNode = null; kids.splice(i, 1);
+        kids[i - 1]._data += kids[i].data; kids[i].parentNode = null; kids.splice(i, 1); changed = true;
       }
     }
     for (let i = kids.length - 1; i >= 0; i--) {
-      if (kids[i].nodeType === TEXT_NODE && kids[i].data === '') { kids[i].parentNode = null; kids.splice(i, 1); }
+      if (kids[i].nodeType === TEXT_NODE && kids[i].data === '') { kids[i].parentNode = null; kids.splice(i, 1); changed = true; }
       else if (kids[i].nodeType === ELEMENT_NODE) kids[i].normalize();
     }
+    // normalize mutates __kids in place — bump __version (invalidate cached queries)
+    // and feed MutationObservers, like every other childList mutation path.
+    if (changed) notifyMutation(this, { type: 'childList', target: this, addedNodes: [], removedNodes: [], nextSibling: null });
   }
   replaceChildren(...nodes) { this.__kids = []; this.__touch(); for (const n of nodes) this.appendChild(typeof n === 'string' ? this.ownerDocument.createTextNode(n) : n); }
   // bitmask: 1 DISCONNECTED, 2 PRECEDING, 4 FOLLOWING, 8 CONTAINS, 16 CONTAINED_BY
@@ -355,12 +359,14 @@ export class Element extends Node {
   // elements are inflated for traversal but never have attrs read).
   __buildAttrs() { const doc = this.ownerDocument, buf = doc && doc.__buf; return (this.__attrIdx >= 0 && buf) ? buf.attrs(this.__attrIdx) : []; }
   getAttribute(name) {
+    if (!this.__ns) name = ('' + name).toLowerCase(); // HTML attr names are ASCII-lowercased (SVG/MathML keep case)
     const at = this.__attrs;
     if (at !== undefined) { for (let i = 0; i < at.length; i++) if (at[i].name === name) return at[i].value; return null; }
     const doc = this.ownerDocument, buf = doc && doc.__buf;        // lazy: read column, don't materialize
     return (this.__attrIdx >= 0 && buf) ? buf.attrGet(this.__attrIdx, name) : null;
   }
   hasAttribute(name) {
+    if (!this.__ns) name = ('' + name).toLowerCase();
     const at = this.__attrs;
     if (at !== undefined) { for (let i = 0; i < at.length; i++) if (at[i].name === name) return true; return false; }
     const doc = this.ownerDocument, buf = doc && doc.__buf;
@@ -368,6 +374,7 @@ export class Element extends Node {
   }
   getAttributeNames() { return (this.__attrs ?? (this.__attrs = this.__buildAttrs())).map((a) => a.name); }
   setAttribute(name, value) {
+    if (!this.__ns) name = ('' + name).toLowerCase();
     if (this.__attrs === undefined) this.__attrs = this.__buildAttrs();
     const a = this.__attrs.find((x) => x.name === name);
     const old = a ? a.value : null;
@@ -376,6 +383,7 @@ export class Element extends Node {
     notifyMutation(this, { type: 'attributes', target: this, attributeName: name, oldValue: old, addedNodes: [], removedNodes: [] });
   }
   removeAttribute(name) {
+    if (!this.__ns) name = ('' + name).toLowerCase();
     if (this.__attrs === undefined) this.__attrs = this.__buildAttrs();
     const a = this.__attrs.find((x) => x.name === name);
     this.__attrs = this.__attrs.filter((x) => x.name !== name);
@@ -505,6 +513,33 @@ export class Element extends Node {
   set name(x) { this.setAttribute('name', x); }
   get placeholder() { return this.getAttribute('placeholder') ?? ''; }
   set placeholder(x) { this.setAttribute('placeholder', x); }
+  // IDL-attribute reflection: React assigns these as element PROPERTIES; without a
+  // reflecting setter the value never reaches a content attribute, so getAttribute/
+  // toHaveAttribute see nothing. Mirrors the canonical lowercased attribute name.
+  get inputMode() { return this.getAttribute('inputmode') ?? ''; }
+  set inputMode(x) { this.setAttribute('inputmode', x); }
+  get spellcheck() { const v = this.getAttribute('spellcheck'); return v == null ? true : v !== 'false'; }
+  set spellcheck(x) { this.setAttribute('spellcheck', x ? 'true' : 'false'); }
+  get autocomplete() { return this.getAttribute('autocomplete') ?? ''; }
+  set autocomplete(x) { this.setAttribute('autocomplete', x); }
+  get accept() { return this.getAttribute('accept') ?? ''; }
+  set accept(x) { this.setAttribute('accept', x); }
+  get min() { return this.getAttribute('min') ?? ''; }
+  set min(x) { this.setAttribute('min', x); }
+  get max() { return this.getAttribute('max') ?? ''; }
+  set max(x) { this.setAttribute('max', x); }
+  get step() { return this.getAttribute('step') ?? ''; }
+  set step(x) { this.setAttribute('step', x); }
+  get pattern() { return this.getAttribute('pattern') ?? ''; }
+  set pattern(x) { this.setAttribute('pattern', x); }
+  get maxLength() { return this.hasAttribute('maxlength') ? parseInt(this.getAttribute('maxlength'), 10) : -1; }
+  set maxLength(x) { this.setAttribute('maxlength', String(x)); }
+  get minLength() { return this.hasAttribute('minlength') ? parseInt(this.getAttribute('minlength'), 10) : -1; }
+  set minLength(x) { this.setAttribute('minlength', String(x)); }
+  get colSpan() { const v = parseInt(this.getAttribute('colspan'), 10); return v > 0 ? v : 1; }
+  set colSpan(x) { this.setAttribute('colspan', String(x)); }
+  get rowSpan() { const v = parseInt(this.getAttribute('rowspan'), 10); return v > 0 ? v : 1; }
+  set rowSpan(x) { this.setAttribute('rowspan', String(x)); }
   get href() { return this.getAttribute('href') ?? ''; }
   set href(x) { this.setAttribute('href', x); }
   get download() { return this.getAttribute('download') ?? ''; }
@@ -638,7 +673,7 @@ export class Element extends Node {
     // React's tracked value too, hiding the change and suppressing onChange.
     if (t === 'checkbox') {
       const old = this.checked; this.__checked = !old;
-      return { undo: () => { this.__checked = old; } };
+      return { undo: () => { this.__checked = old; }, fireChange: true };
     }
     if (t === 'radio') {
       if (this.checked) return null;
@@ -646,7 +681,7 @@ export class Element extends Node {
       const prev = group.find((r) => r.checked) || null;
       group.forEach((r) => { r.__checked = false; });
       this.__checked = true;
-      return { undo: () => { this.__checked = false; if (prev) prev.__checked = true; } };
+      return { undo: () => { this.__checked = false; if (prev) prev.__checked = true; }, fireChange: true };
     }
     return null;
   }
@@ -773,7 +808,20 @@ export class Element extends Node {
   requestSubmit() { this.submit(); }
   reset() {
     if (this.localName !== 'form') return;
-    this.dispatchEvent(new Event('reset', { bubbles: true, cancelable: true }));
+    // abortable: if a listener preventDefault()s the reset event, controls keep state
+    if (!this.dispatchEvent(new Event('reset', { bubbles: true, cancelable: true }))) return;
+    for (const el of this.elements) {
+      const tag = el.localName;
+      if (tag === 'input') {
+        const t = (el.getAttribute('type') || 'text').toLowerCase();
+        if (t === 'checkbox' || t === 'radio') el.__checked = el.hasAttribute('checked');
+        else el.__value = undefined; // fall back to the value attribute (defaultValue)
+      } else if (tag === 'textarea') {
+        el.__value = el.textContent;
+      } else if (tag === 'select') {
+        for (const o of el.getElementsByTagName('option')) o.__selected = o.hasAttribute('selected');
+      }
+    }
   }
 }
 
@@ -959,7 +1007,7 @@ function makeStyle(el) {
   };
   return new Proxy({}, {
     get(_t, key) {
-      if (key === 'getPropertyValue') return (p) => parse().values.get(p) ?? '';
+      if (key === 'getPropertyValue') return (p) => styleGet(parse().values, p);
       if (key === 'getPropertyPriority') return (p) => parse().prio.get(p) ?? '';
       if (key === 'setProperty') return (p, v, priority) => { const s = parse(); s.values.set(p, String(v)); if (priority) s.prio.set(p, 'important'); else s.prio.delete(p); write(s); };
       if (key === 'removeProperty') return (p) => { const s = parse(); const v = s.values.get(p) ?? ''; s.values.delete(p); s.prio.delete(p); write(s); return v; };
@@ -969,7 +1017,7 @@ function makeStyle(el) {
       if (key === 'cssFloat') return parse().values.get('float') ?? '';
       if (key === Symbol.iterator) { const keys = [...parse().values.keys()]; return keys[Symbol.iterator].bind(keys); }
       if (typeof key !== 'string') return undefined;
-      return parse().values.get(kebab(key)) ?? '';
+      return styleGet(parse().values, kebab(key));
     },
     set(_t, key, value) {
       if (key === 'cssText') { el.setAttribute('style', String(value)); return true; }
@@ -979,6 +1027,24 @@ function makeStyle(el) {
   });
 }
 const kebab = (s) => s.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+
+// We store inline styles verbatim (no shorthand expansion). For the common case
+// `style.background='red'; style.backgroundColor` we let a longhand READ fall back
+// to its shorthand when the shorthand holds a single token (one value that applies
+// to all sides / the only sub-property). Multi-token shorthands stay honest: the
+// longhand reads '' rather than guessing which token maps where.
+const SHORTHAND_OF = {
+  'background-color': 'background',
+  'margin-top': 'margin', 'margin-right': 'margin', 'margin-bottom': 'margin', 'margin-left': 'margin',
+  'padding-top': 'padding', 'padding-right': 'padding', 'padding-bottom': 'padding', 'padding-left': 'padding',
+};
+function styleGet(values, prop) {
+  const direct = values.get(prop);
+  if (direct !== undefined) return direct;
+  const sh = SHORTHAND_OF[prop];
+  if (sh) { const v = values.get(sh); if (v !== undefined && !/\s/.test(v.trim())) return v; }
+  return '';
+}
 
 // WHATWG value-sanitization per input type. Returns the accepted value, or null
 // if invalid (caller leaves the current value unchanged — like a real browser,
@@ -1014,6 +1080,24 @@ function makeDataset(el) {
       return undefined;
     },
   });
+}
+
+// adoptNode/importNode helper: a buffer-backed node carries __idx/__attrIdx into
+// the SoA buffer of its ORIGINAL document. Re-homing it to another document would
+// leave those indices reading through the NEW document's buffer (wrong/garbage, or
+// corruption). Materialize attrs + children off the current buffer FIRST, then sever
+// the buffer linkage, then switch ownerDocument — depth-first so each level reads its
+// own (old) buffer before being re-homed.
+function adoptInto(node, doc) {
+  if (node.ownerDocument === doc) return;
+  if (node.nodeType === ELEMENT_NODE) {
+    if (node.__attrs === undefined && node.__attrIdx >= 0) node.__attrs = node.__buildAttrs();
+    node.__attrIdx = -1;
+  }
+  const kids = node.__children ? node.__children() : []; // inflate off the OLD buffer
+  node.__idx = -1;
+  node.ownerDocument = doc;
+  for (const c of kids) adoptInto(c, doc);
 }
 
 // --- MutationObserver, wired to the mutation methods above via notifyMutation ---
@@ -1218,7 +1302,7 @@ export class Document extends Node {
   createComment(data) { return new Comment(this, String(data)); }
   getSelection() { if (!this.__selection) this.__selection = makeSelection(); return this.__selection; }
   importNode(node, deep) { return node.cloneNode(deep); }
-  adoptNode(node) { if (node.parentNode) node.parentNode.removeChild(node); node.ownerDocument = this; return node; }
+  adoptNode(node) { if (node.parentNode) node.parentNode.removeChild(node); adoptInto(node, this); return node; }
 
   // TreeWalker / NodeIterator (whatToShow: 1 elements, 4 text, 0xFFFFFFFF all)
   createTreeWalker(root, whatToShow = 0xffffffff, filter = null) { return new TreeWalker(root, whatToShow, filter); }

@@ -222,8 +222,14 @@ export class EventTarget {
     event.eventPhase = PHASE_NONE;
     event.currentTarget = null;
 
-    // canceled activation: undo the pre-click toggle if default was prevented
+    // canceled activation: undo the pre-click toggle if default was prevented.
+    // Otherwise a checkbox/radio toggle fires input then change (activation
+    // default action) — user-event/React rely on these to see the new value.
     if (activation && event.defaultPrevented) activation.undo();
+    else if (activation && activation.fireChange) {
+      this.dispatchEvent(new Event('input', { bubbles: true }));
+      this.dispatchEvent(new Event('change', { bubbles: true }));
+    }
 
     // remaining default actions (label→control, form submit) unless prevented
     if (!event.defaultPrevented && typeof this.__runDefaultAction === 'function') {

@@ -34,7 +34,9 @@ Toolchain: Node ≥ 24, Rust stable via rustup (`source $HOME/.cargo/env` if car
   from the parser tree and memoize for identity (`dom.mjs` `Document.__inflate`); the window
   Proxy (`window.mjs`) self-replaces lazy globals and traces touched ones. Selectors read the
   internal `node.__children()` array, NOT the live `childNodes` Proxy. Honest stubs in
-  `stubs.mjs` (never invent layout/cascade numbers). Validated by `test/differential.test.mjs`
+  `stubs.mjs` (never invent layout numbers — `getBoundingClientRect`/offsets stay 0). The one
+  exception is the partial style cascade in `cascade.mjs` (see getComputedStyle note below): it
+  resolves REAL injected `<style>`/inline values, never fabricated ones. Validated by `test/differential.test.mjs`
   (jsdom oracle + happy-dom), `test/gauntlet.test.mjs` (RTL unmodified), `test/runtime.test.mjs`.
 
 ## Non-obvious things (read before editing)
@@ -78,11 +80,19 @@ Latest (darwin-arm64, Node 24), vs jsdom / happy-dom:
   querySelectorAll/getElementsBy*/getElementById results are cached per (selector,
   Document.__version); a static querySelectorAll list is safe to reuse until the next
   mutation. cachedQSA/cachedQS + Document.__byTag/__byClass/__idCache.
-- **Per-node memoized live views.** `childNodes`/`children` and `getComputedStyle(el)` are
-  cached on the node (`__childNodesList`/`__childrenList`/`__computedStyle`) — correct because
-  each reads `__children()`/`el.style` LIVE, so the cached object always reflects current state
-  (no version key needed). Bonus: `el.childNodes === el.childNodes` is stable (spec-correct).
-  Don't add a variant that snapshots the array at creation — must read through live.
+- **Per-node memoized live views.** `childNodes`/`children` are cached on the node
+  (`__childNodesList`/`__childrenList`) — correct because each reads `__children()` LIVE, so the
+  cached object always reflects current state (no version key needed). Bonus:
+  `el.childNodes === el.childNodes` is stable (spec-correct). Don't add a variant that snapshots
+  the array at creation — must read through live.
+- **getComputedStyle is a partial cascade** (`cascade.mjs`), NOT inline-only anymore. It resolves
+  injected `<style>` rules (emotion/MUI `.css-HASH{…}`) + inline + specificity/order, memoized as
+  `el.__computedStyle` KEYED ON `Document.__version` (`__computedStyle.__v`) — style mutations bump
+  the version so the cache auto-invalidates. Do NOT make it version-free/live again: the resolved
+  map is a per-version snapshot. Still honest: only returns values from a REAL matched rule/inline;
+  unmatched props read `''`. Out of scope (return `''`): `@media`/`@keyframes`, `:hover`/state,
+  pseudo-elements, full inheritance, CSS vars, length normalization. ZERO hot-path cost — only
+  test-time getComputedStyle calls build the index; parse/query/match/events never touch it.
 - **dispatchEvent skips propagation when no listener is on the path.** One ancestor walk builds
   the path AND flags `hasListener`; capture/target/bubble loops run only if true (preClick +
   default actions still run). React fires thousands of listener-less events.

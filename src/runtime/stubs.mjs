@@ -79,28 +79,8 @@ export function makeMatchMedia() {
   });
 }
 
-// getComputedStyle: honest — reflects ONLY inline + explicitly-set values, never
-// invents cascade/layout numbers. A property that wasn't set reads as ''.
-export function makeGetComputedStyle() {
-  return (el) => {
-    // The Proxy reads el.style LIVE on each access, so one cached Proxy per
-    // element is always correct (no version needed) — avoids re-allocating a
-    // Proxy on every call, which dom-accessibility-api does per element in
-    // getByRole/getByText visibility checks.
-    if (el && el.__computedStyle) return el.__computedStyle;
-    const style = el && el.style ? el.style : null;
-    const proxy = new Proxy({}, {
-      get(_t, key) {
-        if (key === 'getPropertyValue') return (p) => (style ? style.getPropertyValue(p) : '');
-        if (key === '__honest') return 'computed style is inline-only; no layout/cascade available';
-        if (typeof key !== 'string') return undefined;
-        return style ? style[key] : '';
-      },
-    });
-    if (el) el.__computedStyle = proxy;
-    return proxy;
-  };
-}
+// getComputedStyle lives in cascade.mjs — it resolves injected <style> sheets +
+// inline styles (a strict superset of the old inline-only stub once here).
 
 class ObserverStub {
   constructor(cb) { this.__cb = cb; }

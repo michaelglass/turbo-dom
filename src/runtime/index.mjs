@@ -22,11 +22,18 @@ export * from './dom.mjs';
 // (usually the empty default) → parse once, reuse for every file, skipping the
 // native parse + boundary marshaling entirely. Bounded (fixtures are few).
 const __parseCache = new Map();
+const __PARSE_CACHE_MAX = 64;
 function parseBufferCached(html) {
   const hit = __parseCache.get(html);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) {
+    // LRU bump: re-insert so this entry is now most-recently-used (Map keeps order)
+    __parseCache.delete(html); __parseCache.set(html, hit);
+    return hit;
+  }
   const soa = native.parseBuffer(html);
-  if (__parseCache.size > 64) __parseCache.clear();
+  // Evict the single oldest entry, not the whole cache — a suite with >64 distinct
+  // shells should keep its hot fixtures warm, not thrash every one cold on overflow.
+  if (__parseCache.size >= __PARSE_CACHE_MAX) __parseCache.delete(__parseCache.keys().next().value);
   __parseCache.set(html, soa);
   return soa;
 }

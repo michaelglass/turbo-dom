@@ -5,11 +5,12 @@
 // tracer: it records which globals each test actually touches.
 
 import {
-  Storage, makeMatchMedia, makeGetComputedStyle,
+  Storage, makeMatchMedia,
   IntersectionObserver, ResizeObserver,
   FileReader, makeCanvasStub, makeCustomElements,
   makeLocation, makeHistory,
 } from './stubs.mjs';
+import { makeGetComputedStyle } from './cascade.mjs';
 import {
   Node, Element, Text, Comment, Document, DocumentFragment, DocumentType, Event, CustomEvent,
   MutationObserver, DOMParser, XMLSerializer,
@@ -250,6 +251,22 @@ const STATIC_BASE = {
   // every element is a plain Element → `el instanceof HTMLElement` is true.
   // Tag-specific interfaces match by localName via Symbol.hasInstance.
   HTMLElement: Element, SVGElement: Element,
+  // SVG interface globals. Libs (and test setup mocks) do
+  // `Object.defineProperty(SVGSVGElement.prototype, 'viewBox', …)` and
+  // `el instanceof SVGSVGElement`; an undefined global is a hard ReferenceError.
+  SVGSVGElement: tagClass('svg'), SVGPathElement: tagClass('path'),
+  SVGGElement: tagClass('g'), SVGCircleElement: tagClass('circle'),
+  SVGRectElement: tagClass('rect'), SVGLineElement: tagClass('line'),
+  SVGEllipseElement: tagClass('ellipse'), SVGPolygonElement: tagClass('polygon'),
+  SVGPolylineElement: tagClass('polyline'), SVGTextElement: tagClass('text'),
+  SVGTSpanElement: tagClass('tspan'), SVGUseElement: tagClass('use'),
+  SVGDefsElement: tagClass('defs'), SVGImageElement: tagClass('image'),
+  SVGStopElement: tagClass('stop'), SVGSymbolElement: tagClass('symbol'),
+  SVGMarkerElement: tagClass('marker'), SVGClipPathElement: tagClass('clipPath'),
+  SVGMaskElement: tagClass('mask'), SVGPatternElement: tagClass('pattern'),
+  SVGTitleElement: tagClass('title'), SVGDescElement: tagClass('desc'),
+  SVGForeignObjectElement: tagClass('foreignObject'),
+  SVGGraphicsElement: Element, SVGGeometryElement: Element, SVGTextContentElement: Element,
   HTMLAnchorElement: tagClass('a'), HTMLInputElement: tagClass('input'),
   HTMLTextAreaElement: tagClass('textarea'), HTMLSelectElement: tagClass('select'),
   HTMLOptionElement: tagClass('option'), HTMLButtonElement: tagClass('button'),
@@ -260,6 +277,31 @@ const STATIC_BASE = {
   HTMLUListElement: tagClass('ul'), HTMLLIElement: tagClass('li'),
   HTMLBodyElement: tagClass('body'), HTMLIFrameElement: tagClass('iframe'),
   HTMLHeadingElement: tagClass(/^h[1-6]$/),
+  // Previously-missing interfaces: undefined globals make `el instanceof HTMLXElement`
+  // throw "Right-hand side of 'instanceof' is not an object" — worse than returning
+  // false. RTL/React probe these constantly.
+  HTMLTableElement: tagClass('table'), HTMLTableRowElement: tagClass('tr'),
+  HTMLTableCellElement: tagClass(/^(td|th)$/), HTMLTableSectionElement: tagClass(/^(thead|tbody|tfoot)$/),
+  HTMLTableColElement: tagClass(/^(col|colgroup)$/), HTMLTableCaptionElement: tagClass('caption'),
+  HTMLOListElement: tagClass('ol'), HTMLDListElement: tagClass('dl'),
+  HTMLFieldSetElement: tagClass('fieldset'), HTMLLegendElement: tagClass('legend'),
+  HTMLOptGroupElement: tagClass('optgroup'), HTMLDataListElement: tagClass('datalist'),
+  HTMLOutputElement: tagClass('output'), HTMLProgressElement: tagClass('progress'),
+  HTMLMeterElement: tagClass('meter'), HTMLDetailsElement: tagClass('details'),
+  HTMLDialogElement: tagClass('dialog'), HTMLPreElement: tagClass('pre'),
+  HTMLBRElement: tagClass('br'), HTMLHRElement: tagClass('hr'),
+  HTMLQuoteElement: tagClass(/^(q|blockquote)$/), HTMLModElement: tagClass(/^(ins|del)$/),
+  HTMLPictureElement: tagClass('picture'), HTMLSourceElement: tagClass('source'),
+  HTMLTrackElement: tagClass('track'), HTMLVideoElement: tagClass('video'),
+  HTMLAudioElement: tagClass('audio'), HTMLMediaElement: tagClass(/^(video|audio)$/),
+  HTMLEmbedElement: tagClass('embed'), HTMLObjectElement: tagClass('object'),
+  HTMLMapElement: tagClass('map'), HTMLAreaElement: tagClass('area'),
+  HTMLScriptElement: tagClass('script'), HTMLStyleElement: tagClass('style'),
+  HTMLLinkElement: tagClass('link'), HTMLMetaElement: tagClass('meta'),
+  HTMLTitleElement: tagClass('title'), HTMLBaseElement: tagClass('base'),
+  HTMLHeadElement: tagClass('head'), HTMLHtmlElement: tagClass('html'),
+  HTMLDataElement: tagClass('data'), HTMLTimeElement: tagClass('time'),
+  HTMLSlotElement: tagClass('slot'), HTMLMenuElement: tagClass('menu'),
   HTMLDocument: Document, ShadowRoot: DocumentFragment,
   MutationObserver, DOMParser, XMLSerializer,
   URL: TURBO_URL, URLSearchParams,
