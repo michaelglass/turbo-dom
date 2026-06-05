@@ -3,13 +3,24 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 
-test('1: date input user.type sets value + onChange', async () => {
+test('1: date input user.type fires ONE clean onChange (partials rejected)', async () => {
   const onChange = vi.fn();
-  render(<input type="date" aria-label="d" onChange={(e) => onChange(e.target.value)} />);
+  function F() { const [v, setV] = useState(''); return <input type="date" aria-label="d" value={v} onChange={(e) => { setV(e.target.value); onChange(e.target.value); }} />; }
+  render(<F />);
   const el = screen.getByLabelText('d');
   await userEvent.type(el, '2026-04-01');
   expect(el.value).toBe('2026-04-01');
+  expect(onChange).toHaveBeenCalledTimes(1);
   expect(onChange).toHaveBeenCalledWith('2026-04-01');
+});
+
+test('1b: time sanitizes; number rejects non-numeric', () => {
+  const t = document.createElement('input'); t.type = 'time';
+  t.value = 'xx'; expect(t.value).toBe('');
+  t.value = '13:45'; expect(t.value).toBe('13:45');
+  const n = document.createElement('input'); n.type = 'number';
+  n.value = 'abc'; expect(n.value).toBe('');
+  n.value = '42'; expect(n.value).toBe('42');
 });
 
 test('2: FormData keeps File identity + name', () => {

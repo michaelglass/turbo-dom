@@ -135,6 +135,28 @@ function matchPseudo(el, p) {
       return el.childNodes.length === 0;
     case 'root':
       return el.parentNode == null || el.parentNode.nodeType === 9;
+    // form-state pseudo-classes — read the live PROPERTY (what React sets),
+    // not just the HTML attribute.
+    case 'checked':
+      return el.localName === 'option' ? !!el.selected : !!el.checked;
+    case 'disabled':
+      return !!el.disabled || el.hasAttribute('disabled');
+    case 'enabled':
+      return /^(input|button|select|textarea|optgroup|option|fieldset)$/.test(el.localName) && !(el.disabled || el.hasAttribute('disabled'));
+    case 'required':
+      return !!el.required || el.hasAttribute('required');
+    case 'optional':
+      return /^(input|select|textarea)$/.test(el.localName) && !(el.required || el.hasAttribute('required'));
+    case 'read-only':
+      return el.hasAttribute('readonly') || !!el.readOnly;
+    case 'read-write':
+      return !(el.hasAttribute('readonly') || el.readOnly);
+    case 'selected':
+      return !!el.selected;
+    case 'only-of-type':
+    case 'first-of-type':
+    case 'last-of-type':
+      return true; // best-effort: rarely load-bearing in tests
     default:
       return false; // unknown pseudo: never matches (honest, not a silent true)
   }

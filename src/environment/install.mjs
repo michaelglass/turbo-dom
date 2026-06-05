@@ -27,9 +27,12 @@ export function installGlobals(target, { html = DEFAULT_HTML, url } = {}) {
 
   // window self-references
   for (const k of SELF_KEYS) {
+    // window/self/parent/top resolve to the GLOBAL itself (target), like a real
+    // browser where window === globalThis. This is what makes vi.stubGlobal('x')
+    // visible via window.x — they're the same object/property, not two bindings.
     define(k, {
       configurable: true,
-      get: () => window,
+      get: () => target,
       set(v) { Object.defineProperty(target, k, { configurable: true, writable: true, value: v }); },
     });
   }
@@ -45,6 +48,10 @@ export function installGlobals(target, { html = DEFAULT_HTML, url } = {}) {
       set(v) { Object.defineProperty(target, name, { configurable: true, writable: true, value: v }); },
     });
   }
+
+  // window === globalThis (target): keep document.defaultView consistent so
+  // `window === document.defaultView` holds and stubs on the global are seen.
+  try { env.document.defaultView = target; } catch { /* getter-only in some setups */ }
 
   // handy escape hatch
   define('__turboDom', { configurable: true, writable: true, value: env });

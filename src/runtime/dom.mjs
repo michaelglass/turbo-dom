@@ -380,7 +380,16 @@ export class Element extends Node {
     const t = this.localName;
     if (t === 'select') { for (const o of this.getElementsByTagName('option')) o.selected = (o.value === String(x)); return; }
     if (t === 'option') { this.setAttribute('value', x); return; }
-    this.__value = String(x);
+    // typed <input> sanitizes per the value-sanitization algorithm: invalid
+    // values for date/time/number/etc are rejected (value left unchanged), so
+    // user-event typing them char-by-char doesn't emit bogus partial values.
+    if (t === 'input') {
+      const sanitized = sanitizeInputValue((this.getAttribute('type') || 'text').toLowerCase(), String(x));
+      if (sanitized === null) return; // invalid → reject, keep current value
+      this.__value = sanitized;
+    } else {
+      this.__value = String(x);
+    }
     if (this.__selStart != null) { this.__selStart = Math.min(this.__selStart, this.__value.length); this.__selEnd = Math.min(this.__selEnd, this.__value.length); }
   }
   get defaultValue() { return this.getAttribute('value') ?? ''; }
@@ -859,6 +868,24 @@ function makeStyle(el) {
   });
 }
 const kebab = (s) => s.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+
+// WHATWG value-sanitization per input type. Returns the accepted value, or null
+// if invalid (caller leaves the current value unchanged — like a real browser,
+// which rejects partial/garbage input rather than storing it).
+function sanitizeInputValue(type, v) {
+  if (v === '') return '';
+  switch (type) {
+    case 'date': return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+    case 'month': return /^\d{4}-\d{2}$/.test(v) ? v : null;
+    case 'week': return /^\d{4}-W\d{2}$/.test(v) ? v : null;
+    case 'time': return /^\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/.test(v) ? v : null;
+    case 'datetime-local': return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(v) ? v : null;
+    case 'number': return /^-?\d*\.?\d+(e[-+]?\d+)?$/i.test(v) ? v : null;
+    case 'range': return /^-?\d*\.?\d+$/.test(v) ? v : '50';
+    case 'color': return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : null;
+    default: return v; // text, email, password, search, url, tel, hidden, etc.
+  }
+}
 
 // element.dataset — camelCase <-> data-* attribute mapping.
 const dataAttr = (key) => 'data-' + key.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
