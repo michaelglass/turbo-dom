@@ -344,13 +344,20 @@ export class Element extends Node {
       !(this.localName === 'input' && this.getAttribute('type') === 'hidden');
     if (!labelable) return undefined;
     const out = [];
+    // explicit association: <label for="thisId">
     if (this.id) {
       for (const l of this.ownerDocument.getElementsByTagName('label')) {
         if (l.getAttribute('for') === this.id) out.push(l);
       }
     }
+    // implicit association: an ancestor <label> — but ONLY if THIS element is
+    // that label's labeled control (the first labelable descendant). A second
+    // control nested in the same label is NOT labeled by it.
     let p = this.parentNode;
-    while (p) { if (p.localName === 'label' && !out.includes(p)) out.push(p); p = p.parentNode; }
+    while (p) {
+      if (p.localName === 'label') { if (p.control === this && !out.includes(p)) out.push(p); break; }
+      p = p.parentNode;
+    }
     return out;
   }
   get className() { return this.getAttribute('class') || ''; }

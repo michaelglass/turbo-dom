@@ -21,8 +21,14 @@ test('programmatic .click() re-entrancy does not recurse (click-in-progress)', (
   expect(clickSpy).toHaveBeenCalled();
 });
 
-test('getByLabelText is exact: "Street" does not match aria-label "Street-select-address"', () => {
-  render(<div><input aria-label="Street" /><button aria-label="Street-select-address">pick</button></div>);
-  const el = screen.getByLabelText('Street');
-  expect(el.localName).toBe('input');
+test('getByLabelText: wrapping <label> labels only its FIRST control', () => {
+  render(
+    <label>
+      Street
+      <input aria-label="Street" />
+      <button type="button" aria-label="Street-select-address">pick</button>
+    </label>
+  );
+  expect(screen.getByLabelText('Street').localName).toBe('input');
+  expect(screen.getByRole('button', { name: 'Street-select-address' })).toBeTruthy();
 });
