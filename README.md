@@ -94,16 +94,66 @@ Each node: `{ nodeType, name, value, namespace, publicId, systemId, attrs, child
 where `attrs` is `{ name, value, prefix }[]`. nodeTypes follow the DOM
 (`1` element, `3` text, `8` comment, `9` document, `10` doctype, `11` template-content fragment).
 
+## Test runtime (Layers 2–5)
+
+A lazy, copy-on-write DOM + window assembled over the native parser:
+
+```js
+import { createEnvironment } from './src/runtime/index.mjs';
+
+const env = createEnvironment('<!doctype html><body><div id=app></div></body>');
+env.document.querySelector('#app');     // nodes inflate lazily from the buffer
+env.window.localStorage;                // globals materialize on first touch
+env.reset();                            // arena-style per-file reset
+```
+
+- **Layer 2** — node handles inflate lazily from the immutable parse buffer; first
+  access memoizes the handle, so `===` identity, WeakMap keys, and event targets hold.
+  Mutation promotes the node to fully-owned (COW). `childNodes`/`children`/
+  `getElementsByTagName`/`ClassName` are **live**. Full event model (capture/target/bubble,
+  `composedPath`, `stopImmediatePropagation`, `once`, typed events). Selector engine
+  (combinators, `[attr op]`, `:not`, structural pseudos), `innerHTML`/`outerHTML`.
+- **Layer 3** — `window` is a Proxy; ~lazy globals self-replace on first `get` and the
+  Proxy traces which a test touched. Render-only tests construct **zero** globals.
+- **Layer 4** — honest stubs: `getBoundingClientRect()` → zeros, `getComputedStyle` →
+  inline-only (empty, never a plausible lie), no reflow.
+- **Layer 5** — `reset()` drops the COW overlay + node cache + materialized globals,
+  keeping the buffer and classes warm.
+
+Light-test path (construct + one query): **6.9× jsdom, 3.7× happy-dom**
+(`npm run bench:construct`).
+
+## Testing — all three plan phases (§9)
+
+| Phase | Claim tested | Where | Result |
+|---|---|---|---|
+| **1** lazy window | per-file construction is the cost | `bench/construct.mjs` | 6.9× jsdom; render-only → 0 globals; surface histogram |
+| **2** native parser | faster **and** more spec-correct | `bench/parse.mjs`, `harness/delta.mjs` | 1.7–14.7× faster; 98.43% vs jsdom 97.03% vs happy-dom 37.35% |
+| **3** COW lazy nodes | speed without incompatibility | `test/differential.test.mjs`, `test/gauntlet.test.mjs`, `test/runtime.test.mjs` | matches jsdom across fuzz seeds; RTL runs unmodified; liveness/identity property tests |
+
+- **Differential (oracle):** deterministic random op sequences applied to fast-dom, jsdom,
+  and happy-dom; fast-dom must match jsdom exactly (it does). happy-dom compared too —
+  where it disagrees with jsdom it's happy-dom's bug, and fast-dom sides with jsdom.
+- **Gauntlet:** `@testing-library/dom` (getByText/getByRole/getByLabelText/fireEvent/within)
+  runs **unmodified** against the environment — the test happy-dom fails.
+
+73 tests total (7 Rust core + 66 JS). Deferred: live wasm-vs-native throughput bench
+(the wasm target compiles; benching it needs wasm-bindgen JS glue / wasm-pack).
+
 ## Build & test
 
 ```bash
 npm install
-npm run build         # native addon (.node)
-npm run build:wasm    # wasm32 fallback
+npm run build           # native addon (.node)
+npm run build:wasm      # wasm32 fallback
 
-npm test              # JS suite (unit + serializer + dat-parser + conformance gate)
-npm run test:rust     # Rust core unit tests
-npm run test:all      # build + both suites
+npm test                # full JS suite (unit, conformance, differential, gauntlet, runtime)
+npm run test:rust       # Rust core unit tests
+npm run test:all        # build + both suites
+npm run conformance     # html5lib gate
+npm run conformance:delta   # vs happy-dom / jsdom
+npm run bench           # parse throughput
+npm run bench:construct # Phase-1 construction + surface histogram
 ```
 
 Requires Node ≥ 24 (uses `node --test`) and a Rust toolchain (`rustup`, stable). The
@@ -114,16 +164,30 @@ wasm build also needs `rustup target add wasm32-unknown-unknown`.
 ```
 src/core.rs            shared parser core (html5ever → nested tree). No binding deps.
 src/lib.rs             napi-rs + wasm-bindgen front-ends over the core.
-harness/dat.mjs        html5lib-tests .dat fixture parser.
-harness/serialize.mjs  tree → html5lib dump-format serializer.
-harness/conformance.mjs the conformance gate (CLI + reusable runner).
-test/                  JS unit tests (smoke, dat, serialize, conformance).
-vendor/html5lib-tests/ 57 WHATWG tree-construction fixtures.
+src/runtime/           the lazy COW DOM + window (Layers 2–5):
+  dom.mjs                nodes, lazy inflation, COW, live collections, identity
+  events.mjs             EventTarget/Event + typed events (full propagation model)
+  selectors.mjs          CSS selector engine
+  collections.mjs        live NodeList / HTMLCollection
+  window.mjs             lazy self-replacing window Proxy + tracer
+  stubs.mjs              honest layout/CSSOM/storage/observer stubs
+  index.mjs              createEnvironment() + reset()
+harness/               html5lib conformance tooling (dat parser, serializer, gate, delta)
+bench/                 parse throughput + construction benchmarks
+test/                  unit, conformance, differential, RTL-gauntlet, runtime suites
+vendor/html5lib-tests/ 57 WHATWG tree-construction fixtures
 ```
 
 ## Status
 
-Layer 1 (native parser) — **done at the full-marshaling milestone.** Next per the plan:
-boundary-cost isolation bench (parse-only vs parse+marshal) to decide whether the SoA
-buffer is worth building, then Layers 2–5 (lazy COW nodes, lazy window, honest stubs,
-fast per-file reset).
+All layers built and tested:
+
+- **Layer 1** native parser — full-marshaling milestone. Faster than happy-dom/jsdom and
+  more spec-correct (98.43%).
+- **Layers 2–5** lazy COW DOM + lazy window + honest stubs + fast reset — passing
+  differential-vs-jsdom fuzzing and the unmodified RTL gauntlet.
+
+Next (optimization, not correctness): the **SoA flat buffer** the benches justify — `parse()`
+spends 2.2–8× longer than `parseRaw()` building the JS tree, and lazy nodes already avoid
+inflating untouched subtrees; moving the source-of-truth to a typed-array SoA would shrink
+both the marshaling cost and per-file reset further. Plus live wasm throughput numbers.

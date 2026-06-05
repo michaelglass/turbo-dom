@@ -1,0 +1,111 @@
+// Layer 3 — lazy `window`. A Proxy whose globals are factories that materialize
+// on first `get` and self-replace with the concrete value (one-time Proxy cost
+// per property). A test using only `document.querySelector` never constructs
+// localStorage, IntersectionObserver, matchMedia, etc. The Proxy doubles as a
+// tracer: it records which globals each test actually touches.
+
+import {
+  Storage, makeMatchMedia, makeGetComputedStyle,
+  IntersectionObserver, ResizeObserver, MutationObserver,
+  makeLocation, makeHistory,
+} from './stubs.mjs';
+import {
+  Node, Element, Text, Comment, Document, DocumentFragment, DocumentType, Event, CustomEvent,
+} from './dom.mjs';
+import {
+  UIEvent, MouseEvent, PointerEvent, KeyboardEvent, InputEvent, FocusEvent,
+  CompositionEvent, WheelEvent, TouchEvent, DragEvent, ProgressEvent,
+} from './events.mjs';
+
+export function createWindow(document, { url = 'http://localhost/' } = {}) {
+  const touched = new Set();
+  let windowProxy;
+
+  // Universal globals (touched by ~every test) — eager, no point lazifying.
+  const base = {
+    document,
+    name: '',
+    closed: false,
+    origin: new URL(url).origin,
+    // constructors are cheap class refs — expose eagerly
+    Node, Element, Text, Comment, Document, DocumentFragment, DocumentType,
+    Event, CustomEvent,
+    UIEvent, MouseEvent, PointerEvent, KeyboardEvent, InputEvent, FocusEvent,
+    CompositionEvent, WheelEvent, TouchEvent, DragEvent, ProgressEvent,
+    HTMLElement: Element, SVGElement: Element,
+    URL, URLSearchParams,
+    // timers delegate to the host (Node) — already lazy at the OS level
+    setTimeout: (...a) => setTimeout(...a),
+    clearTimeout: (...a) => clearTimeout(...a),
+    setInterval: (...a) => setInterval(...a),
+    clearInterval: (...a) => clearInterval(...a),
+    queueMicrotask: (...a) => queueMicrotask(...a),
+    structuredClone: (...a) => structuredClone(...a),
+    getSelection: () => null,
+    scrollTo() {}, scroll() {}, scrollBy() {},
+    alert() {}, confirm: () => false, prompt: () => null,
+    dispatchEvent: (e) => document.dispatchEvent(e),
+    addEventListener: (...a) => document.addEventListener(...a),
+    removeEventListener: (...a) => document.removeEventListener(...a),
+  };
+
+  // Lazy globals — none constructed until touched.
+  const lazy = {
+    localStorage: () => new Storage(),
+    sessionStorage: () => new Storage(),
+    matchMedia: () => makeMatchMedia(),
+    getComputedStyle: () => makeGetComputedStyle(),
+    IntersectionObserver: () => IntersectionObserver,
+    ResizeObserver: () => ResizeObserver,
+    MutationObserver: () => MutationObserver,
+    requestAnimationFrame: () => (cb) => setTimeout(() => cb(performanceNow()), 0),
+    cancelAnimationFrame: () => (id) => clearTimeout(id),
+    // subsystem grouping: history co-materializes with (and shares) location
+    location: () => makeLocation(url),
+    history: () => makeHistory(windowProxy.location),
+    navigator: () => ({ userAgent: 'fast-dom/0.0.1', platform: 'fast-dom', language: 'en-US', languages: ['en-US'], onLine: true }),
+    performance: () => ({ now: performanceNow, timeOrigin: 0, mark() {}, measure() {} }),
+    Storage: () => Storage,
+    devicePixelRatio: () => 1,
+    innerWidth: () => 1024,
+    innerHeight: () => 768,
+  };
+
+  windowProxy = new Proxy(base, {
+    get(t, k) {
+      if (k === 'window' || k === 'self' || k === 'globalThis' || k === 'parent' || k === 'top') return windowProxy;
+      if (k in t) return t[k];
+      const factory = lazy[k];
+      if (factory) {
+        touched.add(k);
+        const v = factory();
+        t[k] = v;                 // self-replace: subsequent reads skip the factory
+        return v;
+      }
+      return undefined;
+    },
+    set(t, k, v) { t[k] = v; return true; },
+    has(t, k) {
+      return k in t || k in lazy ||
+        k === 'window' || k === 'self' || k === 'globalThis' || k === 'parent' || k === 'top';
+    },
+  });
+
+  document.defaultView = windowProxy;
+
+  return {
+    window: windowProxy,
+    // which lazy globals this test materialized (the "DOM surface used" report)
+    touched: () => [...touched],
+    // Layer 5: drop materialized global slots, keep the class machinery warm.
+    resetGlobals() {
+      for (const k of touched) delete base[k];
+      touched.clear();
+    },
+  };
+}
+
+function performanceNow() {
+  const [s, ns] = process.hrtime();
+  return s * 1000 + ns / 1e6;
+}

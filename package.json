@@ -23,7 +23,8 @@
     "test:all": "npm run build && npm run test:rust && npm test",
     "conformance": "node harness/conformance.mjs",
     "conformance:delta": "node harness/delta.mjs",
-    "bench": "node bench/parse.mjs"
+    "bench": "node bench/parse.mjs",
+    "bench:construct": "node bench/construct.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.4",

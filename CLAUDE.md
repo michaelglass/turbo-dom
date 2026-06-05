@@ -29,6 +29,13 @@ Toolchain: Node ≥ 24, Rust stable via rustup (`source $HOME/.cargo/env` if car
 - `src/lib.rs` — two feature-gated front-ends (`napi-bind` default, `wasm-bind`). Each is a
   thin `From<core::Node>` / serde conversion. Keep logic in core, not here.
 - `harness/` — JS conformance tooling (dat parser, serializer, runner). All unit-tested.
+- `src/runtime/` — the lazy COW DOM + window (Layers 2–5). `index.mjs` exports
+  `createEnvironment(html)` → `{ window, document, reset, touched }`. Nodes inflate lazily
+  from the parser tree and memoize for identity (`dom.mjs` `Document.__inflate`); the window
+  Proxy (`window.mjs`) self-replaces lazy globals and traces touched ones. Selectors read the
+  internal `node.__children()` array, NOT the live `childNodes` Proxy. Honest stubs in
+  `stubs.mjs` (never invent layout/cascade numbers). Validated by `test/differential.test.mjs`
+  (jsdom oracle + happy-dom), `test/gauntlet.test.mjs` (RTL unmodified), `test/runtime.test.mjs`.
 
 ## Non-obvious things (read before editing)
 
