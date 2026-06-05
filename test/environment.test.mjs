@@ -6,7 +6,7 @@ import vitestEnv from '../src/environment/vitest.mjs';
 const require = createRequire(import.meta.url);
 
 test('vitest env: name + transformMode', () => {
-  assert.equal(vitestEnv.name, 'turbodom');
+  assert.equal(vitestEnv.name, 'turbo-dom');
   assert.equal(vitestEnv.transformMode, 'web');
 });
 
@@ -29,9 +29,9 @@ test('vitest env installs document/window/self + lazy globals', () => {
   teardown();
 });
 
-test('vitest env seeds the document from environmentOptions.turbodom.html', () => {
+test('vitest env seeds the document from environmentOptions.turboDom.html', () => {
   const g = {};
-  vitestEnv.setup(g, { turbodom: { html: '<!doctype html><body><main id=x>hi</main></body>' } });
+  vitestEnv.setup(g, { turboDom: { html: '<!doctype html><body><main id=x>hi</main></body>' } });
   assert.equal(g.document.getElementById('x').textContent, 'hi');
 });
 
@@ -39,13 +39,13 @@ test('lazy: render-only env touches zero lazy globals', () => {
   const g = {};
   vitestEnv.setup(g, {});
   g.document.querySelectorAll('div'); // pure DOM
-  assert.deepEqual(g.__turbodom.touched(), []);
+  assert.deepEqual(g.__turboDom.touched(), []);
 });
 
 test('@testing-library/dom works through globals installed on globalThis', () => {
   const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
   try {
-    vitestEnv.setup(globalThis, { turbodom: { html: '<!doctype html><body><button>Click me</button></body>' } });
+    vitestEnv.setup(globalThis, { turboDom: { html: '<!doctype html><body><button>Click me</button></body>' } });
     const { screen } = require('@testing-library/dom'); // screen binds to global document lazily
     assert.ok(screen.getByText('Click me'));
     assert.equal(screen.queryByText('nope'), null);

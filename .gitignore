@@ -12,3 +12,6 @@ node_modules
 
 # wasm-pack generated package
 /pkg
+
+# personal publish cheat sheet (do not commit)
+NPM-PUBLISH-TURBODOM.md

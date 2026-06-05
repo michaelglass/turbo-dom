@@ -1,4 +1,4 @@
-//! turbodom parser — Layer 1.
+//! turbo-dom parser — Layer 1.
 //! One Rust core (`core`), two interchangeable front-ends selected by feature:
 //!   * `napi-bind`  → native Node addon (default, fast path)
 //!   * `wasm-bind`  → wasm32 fallback (StackBlitz / WebContainers / locked-down CI)

@@ -1,5 +1,5 @@
 // Phase 3, test strategy #2 (the headline): real component libraries, UNMODIFIED,
-// rendered with React + @testing-library/react against the turbodom environment.
+// rendered with React + @testing-library/react against the turbo-dom environment.
 // This is the test happy-dom fails on real libraries — passing it is the point.
 
 import { test, beforeEach } from 'node:test';
@@ -9,9 +9,9 @@ import vitestEnv from '../src/environment/vitest.mjs';
 
 const require = createRequire(import.meta.url);
 
-// install a turbodom DOM environment on globalThis (what the vitest adapter does)
+// install a turbo-dom DOM environment on globalThis (what the vitest adapter does)
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-vitestEnv.setup(globalThis, { turbodom: { html: '<!doctype html><html><body></body></html>' } });
+vitestEnv.setup(globalThis, { turboDom: { html: '<!doctype html><html><body></body></html>' } });
 
 // Each real test FILE gets a fresh realm; here all tests share one Element
 // prototype, so libraries that patch focus/blur (user-event, headlessui) would

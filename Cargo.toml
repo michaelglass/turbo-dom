@@ -1,8 +1,8 @@
 [package]
-name = "turbodom-parser"
+name = "turbo-dom-parser"
 version = "0.0.1"
 edition = "2021"
-description = "html5ever-backed native parser for turbodom (Layer 1)"
+description = "html5ever-backed native parser for turbo-dom (Layer 1)"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

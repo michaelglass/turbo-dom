@@ -2,11 +2,11 @@
 // Generate deterministic random DOM op sequences, apply identically to all three
 // engines, and compare canonical trees.
 //
-// jsdom is the strict oracle (spec-correct): turbodom MUST match it exactly.
+// jsdom is the strict oracle (spec-correct): turbo-dom MUST match it exactly.
 // happy-dom is also compared — but where happy-dom disagrees with jsdom, that is
-// happy-dom's bug, and turbodom is allowed to side with jsdom. The test fails only
-// if turbodom diverges from jsdom, or if turbodom diverges from happy-dom on an op
-// where happy-dom and jsdom actually agree (i.e. a real turbodom bug).
+// happy-dom's bug, and turbo-dom is allowed to side with jsdom. The test fails only
+// if turbo-dom diverges from jsdom, or if turbo-dom diverges from happy-dom on an op
+// where happy-dom and jsdom actually agree (i.e. a real turbo-dom bug).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -83,16 +83,16 @@ for (const seed of [1, 7, 42, 1337, 90210]) {
 
     const cf = canon(fast.body), cj = canon(jdom.body), ch = canon(hdom.body);
 
-    // hard oracle: turbodom must match jsdom exactly
-    assert.equal(cf, cj, `turbodom diverged from jsdom @ seed ${seed}`);
+    // hard oracle: turbo-dom must match jsdom exactly
+    assert.equal(cf, cj, `turbo-dom diverged from jsdom @ seed ${seed}`);
 
-    // happy-dom: only a turbodom bug if happy-dom AGREES with jsdom yet turbodom doesn't.
+    // happy-dom: only a turbo-dom bug if happy-dom AGREES with jsdom yet turbo-dom doesn't.
     // (cf===cj already holds here, so this just records when happy-dom itself diverged.)
     if (ch !== cj) {
-      // happy-dom is the diverger; turbodom correctly sided with jsdom. Informational.
+      // happy-dom is the diverger; turbo-dom correctly sided with jsdom. Informational.
       // (no assertion — this is happy-dom's known incorrectness)
     } else {
-      assert.equal(cf, ch, `turbodom diverged from happy-dom where happy-dom matched jsdom @ seed ${seed}`);
+      assert.equal(cf, ch, `turbo-dom diverged from happy-dom where happy-dom matched jsdom @ seed ${seed}`);
     }
   });
 }
@@ -111,9 +111,9 @@ test('querySelectorAll parity vs jsdom AND happy-dom', () => {
     const f = fast.querySelectorAll(sel).length;
     const j = jdom.querySelectorAll(sel).length;
     const h = hdom.querySelectorAll(sel).length;
-    assert.equal(f, j, `selector "${sel}": turbodom ${f} != jsdom ${j}`);
+    assert.equal(f, j, `selector "${sel}": turbo-dom ${f} != jsdom ${j}`);
     // happy-dom must also agree on these simple selectors
-    assert.equal(f, h, `selector "${sel}": turbodom ${f} != happy-dom ${h}`);
+    assert.equal(f, h, `selector "${sel}": turbo-dom ${f} != happy-dom ${h}`);
   }
 });
 

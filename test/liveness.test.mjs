@@ -31,8 +31,8 @@ test('adoption agency algorithm: <a><p></a></p>', () => {
 
 test('table foster-parenting: stray text fostered BEFORE the table (WHATWG spec)', () => {
   // Spec: non-whitespace chars in "in table" mode foster-parent immediately BEFORE
-  // the table. turbodom (html5ever) matches html5lib-tests here. (This jsdom build
-  // places the text after the table — turbodom sides with the spec, not jsdom.)
+  // the table. turbo-dom (html5ever) matches html5lib-tests here. (This jsdom build
+  // places the text after the table — turbo-dom sides with the spec, not jsdom.)
   const html = '<!doctype html><body><table>oops<tr><td>x</td></tr></table></body>';
   const fast = createEnvironment(html).document;
   const kids = Array.from(fast.body.childNodes).filter((n) => n.nodeType === 1 || (n.nodeType === 3 && n.data.trim() !== ''));

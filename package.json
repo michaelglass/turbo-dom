@@ -1,5 +1,5 @@
 {
-  "name": "turbodom",
+  "name": "turbo-dom",
   "version": "0.1.0",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "main": "index.js",
@@ -37,7 +37,7 @@
     "README.md"
   ],
   "napi": {
-    "name": "turbodom-parser",
+    "name": "turbo-dom-parser",
     "triples": {
       "defaults": true,
       "additional": [
@@ -82,11 +82,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/miaskiewicz/turbodom.git"
+    "url": "git+https://github.com/miaskiewicz/turbo-dom.git"
   },
-  "homepage": "https://github.com/miaskiewicz/turbodom#readme",
+  "homepage": "https://github.com/miaskiewicz/turbo-dom#readme",
   "bugs": {
-    "url": "https://github.com/miaskiewicz/turbodom/issues"
+    "url": "https://github.com/miaskiewicz/turbo-dom/issues"
   },
   "author": "miaskiewicz",
   "engines": {

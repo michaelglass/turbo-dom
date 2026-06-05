@@ -1,4 +1,4 @@
-// Install a turbodom window/document onto a global object (the shared core of
+// Install a turbo-dom window/document onto a global object (the shared core of
 // the vitest + jest environment adapters). Globals are defined as getters that
 // pull from the lazy window Proxy, so laziness + the touch-tracer are preserved.
 
@@ -29,6 +29,6 @@ export function installGlobals(target, { html = DEFAULT_HTML, url } = {}) {
   }
 
   // handy escape hatches for adapters / per-test reset
-  target.__turbodom = env;
+  target.__turboDom = env;
   return env;
 }

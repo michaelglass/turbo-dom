@@ -32,24 +32,24 @@ switch (platform) {
   case 'android':
     switch (arch) {
       case 'arm64':
-        localFileExisted = existsSync(join(__dirname, 'turbodom-parser.android-arm64.node'))
+        localFileExisted = existsSync(join(__dirname, 'turbo-dom-parser.android-arm64.node'))
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.android-arm64.node')
+            nativeBinding = require('./turbo-dom-parser.android-arm64.node')
           } else {
-            nativeBinding = require('turbodom-android-arm64')
+            nativeBinding = require('turbo-dom-android-arm64')
           }
         } catch (e) {
           loadError = e
         }
         break
       case 'arm':
-        localFileExisted = existsSync(join(__dirname, 'turbodom-parser.android-arm-eabi.node'))
+        localFileExisted = existsSync(join(__dirname, 'turbo-dom-parser.android-arm-eabi.node'))
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.android-arm-eabi.node')
+            nativeBinding = require('./turbo-dom-parser.android-arm-eabi.node')
           } else {
-            nativeBinding = require('turbodom-android-arm-eabi')
+            nativeBinding = require('turbo-dom-android-arm-eabi')
           }
         } catch (e) {
           loadError = e
@@ -63,13 +63,13 @@ switch (platform) {
     switch (arch) {
       case 'x64':
         localFileExisted = existsSync(
-          join(__dirname, 'turbodom-parser.win32-x64-msvc.node')
+          join(__dirname, 'turbo-dom-parser.win32-x64-msvc.node')
         )
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.win32-x64-msvc.node')
+            nativeBinding = require('./turbo-dom-parser.win32-x64-msvc.node')
           } else {
-            nativeBinding = require('turbodom-win32-x64-msvc')
+            nativeBinding = require('turbo-dom-win32-x64-msvc')
           }
         } catch (e) {
           loadError = e
@@ -77,13 +77,13 @@ switch (platform) {
         break
       case 'ia32':
         localFileExisted = existsSync(
-          join(__dirname, 'turbodom-parser.win32-ia32-msvc.node')
+          join(__dirname, 'turbo-dom-parser.win32-ia32-msvc.node')
         )
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.win32-ia32-msvc.node')
+            nativeBinding = require('./turbo-dom-parser.win32-ia32-msvc.node')
           } else {
-            nativeBinding = require('turbodom-win32-ia32-msvc')
+            nativeBinding = require('turbo-dom-win32-ia32-msvc')
           }
         } catch (e) {
           loadError = e
@@ -91,13 +91,13 @@ switch (platform) {
         break
       case 'arm64':
         localFileExisted = existsSync(
-          join(__dirname, 'turbodom-parser.win32-arm64-msvc.node')
+          join(__dirname, 'turbo-dom-parser.win32-arm64-msvc.node')
         )
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.win32-arm64-msvc.node')
+            nativeBinding = require('./turbo-dom-parser.win32-arm64-msvc.node')
           } else {
-            nativeBinding = require('turbodom-win32-arm64-msvc')
+            nativeBinding = require('turbo-dom-win32-arm64-msvc')
           }
         } catch (e) {
           loadError = e
@@ -108,23 +108,23 @@ switch (platform) {
     }
     break
   case 'darwin':
-    localFileExisted = existsSync(join(__dirname, 'turbodom-parser.darwin-universal.node'))
+    localFileExisted = existsSync(join(__dirname, 'turbo-dom-parser.darwin-universal.node'))
     try {
       if (localFileExisted) {
-        nativeBinding = require('./turbodom-parser.darwin-universal.node')
+        nativeBinding = require('./turbo-dom-parser.darwin-universal.node')
       } else {
-        nativeBinding = require('turbodom-darwin-universal')
+        nativeBinding = require('turbo-dom-darwin-universal')
       }
       break
     } catch {}
     switch (arch) {
       case 'x64':
-        localFileExisted = existsSync(join(__dirname, 'turbodom-parser.darwin-x64.node'))
+        localFileExisted = existsSync(join(__dirname, 'turbo-dom-parser.darwin-x64.node'))
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.darwin-x64.node')
+            nativeBinding = require('./turbo-dom-parser.darwin-x64.node')
           } else {
-            nativeBinding = require('turbodom-darwin-x64')
+            nativeBinding = require('turbo-dom-darwin-x64')
           }
         } catch (e) {
           loadError = e
@@ -132,13 +132,13 @@ switch (platform) {
         break
       case 'arm64':
         localFileExisted = existsSync(
-          join(__dirname, 'turbodom-parser.darwin-arm64.node')
+          join(__dirname, 'turbo-dom-parser.darwin-arm64.node')
         )
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.darwin-arm64.node')
+            nativeBinding = require('./turbo-dom-parser.darwin-arm64.node')
           } else {
-            nativeBinding = require('turbodom-darwin-arm64')
+            nativeBinding = require('turbo-dom-darwin-arm64')
           }
         } catch (e) {
           loadError = e
@@ -152,12 +152,12 @@ switch (platform) {
     if (arch !== 'x64') {
       throw new Error(`Unsupported architecture on FreeBSD: ${arch}`)
     }
-    localFileExisted = existsSync(join(__dirname, 'turbodom-parser.freebsd-x64.node'))
+    localFileExisted = existsSync(join(__dirname, 'turbo-dom-parser.freebsd-x64.node'))
     try {
       if (localFileExisted) {
-        nativeBinding = require('./turbodom-parser.freebsd-x64.node')
+        nativeBinding = require('./turbo-dom-parser.freebsd-x64.node')
       } else {
-        nativeBinding = require('turbodom-freebsd-x64')
+        nativeBinding = require('turbo-dom-freebsd-x64')
       }
     } catch (e) {
       loadError = e
@@ -168,26 +168,26 @@ switch (platform) {
       case 'x64':
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-x64-musl.node')
+            join(__dirname, 'turbo-dom-parser.linux-x64-musl.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-x64-musl.node')
+              nativeBinding = require('./turbo-dom-parser.linux-x64-musl.node')
             } else {
-              nativeBinding = require('turbodom-linux-x64-musl')
+              nativeBinding = require('turbo-dom-linux-x64-musl')
             }
           } catch (e) {
             loadError = e
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-x64-gnu.node')
+            join(__dirname, 'turbo-dom-parser.linux-x64-gnu.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-x64-gnu.node')
+              nativeBinding = require('./turbo-dom-parser.linux-x64-gnu.node')
             } else {
-              nativeBinding = require('turbodom-linux-x64-gnu')
+              nativeBinding = require('turbo-dom-linux-x64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -197,26 +197,26 @@ switch (platform) {
       case 'arm64':
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-arm64-musl.node')
+            join(__dirname, 'turbo-dom-parser.linux-arm64-musl.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-arm64-musl.node')
+              nativeBinding = require('./turbo-dom-parser.linux-arm64-musl.node')
             } else {
-              nativeBinding = require('turbodom-linux-arm64-musl')
+              nativeBinding = require('turbo-dom-linux-arm64-musl')
             }
           } catch (e) {
             loadError = e
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-arm64-gnu.node')
+            join(__dirname, 'turbo-dom-parser.linux-arm64-gnu.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-arm64-gnu.node')
+              nativeBinding = require('./turbo-dom-parser.linux-arm64-gnu.node')
             } else {
-              nativeBinding = require('turbodom-linux-arm64-gnu')
+              nativeBinding = require('turbo-dom-linux-arm64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -226,26 +226,26 @@ switch (platform) {
       case 'arm':
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-arm-musleabihf.node')
+            join(__dirname, 'turbo-dom-parser.linux-arm-musleabihf.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-arm-musleabihf.node')
+              nativeBinding = require('./turbo-dom-parser.linux-arm-musleabihf.node')
             } else {
-              nativeBinding = require('turbodom-linux-arm-musleabihf')
+              nativeBinding = require('turbo-dom-linux-arm-musleabihf')
             }
           } catch (e) {
             loadError = e
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-arm-gnueabihf.node')
+            join(__dirname, 'turbo-dom-parser.linux-arm-gnueabihf.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-arm-gnueabihf.node')
+              nativeBinding = require('./turbo-dom-parser.linux-arm-gnueabihf.node')
             } else {
-              nativeBinding = require('turbodom-linux-arm-gnueabihf')
+              nativeBinding = require('turbo-dom-linux-arm-gnueabihf')
             }
           } catch (e) {
             loadError = e
@@ -255,26 +255,26 @@ switch (platform) {
       case 'riscv64':
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-riscv64-musl.node')
+            join(__dirname, 'turbo-dom-parser.linux-riscv64-musl.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-riscv64-musl.node')
+              nativeBinding = require('./turbo-dom-parser.linux-riscv64-musl.node')
             } else {
-              nativeBinding = require('turbodom-linux-riscv64-musl')
+              nativeBinding = require('turbo-dom-linux-riscv64-musl')
             }
           } catch (e) {
             loadError = e
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, 'turbodom-parser.linux-riscv64-gnu.node')
+            join(__dirname, 'turbo-dom-parser.linux-riscv64-gnu.node')
           )
           try {
             if (localFileExisted) {
-              nativeBinding = require('./turbodom-parser.linux-riscv64-gnu.node')
+              nativeBinding = require('./turbo-dom-parser.linux-riscv64-gnu.node')
             } else {
-              nativeBinding = require('turbodom-linux-riscv64-gnu')
+              nativeBinding = require('turbo-dom-linux-riscv64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -283,13 +283,13 @@ switch (platform) {
         break
       case 's390x':
         localFileExisted = existsSync(
-          join(__dirname, 'turbodom-parser.linux-s390x-gnu.node')
+          join(__dirname, 'turbo-dom-parser.linux-s390x-gnu.node')
         )
         try {
           if (localFileExisted) {
-            nativeBinding = require('./turbodom-parser.linux-s390x-gnu.node')
+            nativeBinding = require('./turbo-dom-parser.linux-s390x-gnu.node')
           } else {
-            nativeBinding = require('turbodom-linux-s390x-gnu')
+            nativeBinding = require('turbo-dom-linux-s390x-gnu')
           }
         } catch (e) {
           loadError = e

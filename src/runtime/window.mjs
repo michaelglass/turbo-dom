@@ -104,7 +104,7 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     // subsystem grouping: history co-materializes with (and shares) location
     location: () => makeLocation(url),
     history: () => makeHistory(windowProxy.location),
-    navigator: () => ({ userAgent: 'turbodom/0.0.1', platform: 'turbodom', language: 'en-US', languages: ['en-US'], onLine: true }),
+    navigator: () => ({ userAgent: 'turbo-dom/0.0.1', platform: 'turbo-dom', language: 'en-US', languages: ['en-US'], onLine: true }),
     performance: () => ({ now: performanceNow, timeOrigin: 0, mark() {}, measure() {} }),
     Storage: () => Storage,
     devicePixelRatio: () => 1,
@@ -156,7 +156,7 @@ function performanceNow() {
 let __objUrlSeq = 0;
 function makeURL() {
   class TurboURL extends URL {}
-  TurboURL.createObjectURL = () => `blob:turbodom/${++__objUrlSeq}`;
+  TurboURL.createObjectURL = () => `blob:turbo-dom/${++__objUrlSeq}`;
   TurboURL.revokeObjectURL = () => {};
   return TurboURL;
 }

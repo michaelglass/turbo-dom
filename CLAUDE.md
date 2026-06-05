@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-Dev guide for this repo. See `turbodom-spec.md` for the full design and `README.md` for usage.
+Dev guide for this repo. See `turbo-dom-spec.md` for the full design and `README.md` for usage.
 
 ## What this is
 
-Layer 1 of turbodom: a native HTML parser (Rust + `html5ever`) with napi-rs (native) and
+Layer 1 of turboDom: a native HTML parser (Rust + `html5ever`) with napi-rs (native) and
 wasm-bindgen (fallback) front-ends over **one shared core**. Parser produces a complete
 nested tree and crosses the JS boundary once ("full marshaling"). The SoA flat-buffer from
 the architecture doc is **intentionally not built yet** — it's gated on marshaling proving
@@ -13,7 +13,7 @@ to be the cost (a later bench). Don't SoA-ify `core.rs`.
 ## Build & test
 
 ```bash
-npm run build         # native addon → turbodom-parser.<platform>.node + index.js/.d.ts (napi codegen)
+npm run build         # native addon → turbo-dom-parser.<platform>.node + index.js/.d.ts (napi codegen)
 npm run build:wasm    # wasm32 fallback
 npm test              # JS: node --test  (MUST glob: 'test/*.mjs' — `node --test test/` is misparsed on Node 24)
 npm run test:rust     # cargo test --lib  (core unit tests live in src/core.rs #[cfg(test)])

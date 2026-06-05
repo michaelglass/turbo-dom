@@ -1,4 +1,4 @@
-// turbodom test runtime — assembles Layers 1–5 into a jsdom-like environment.
+// turbo-dom test runtime — assembles Layers 1–5 into a jsdom-like environment.
 //
 //   import { createEnvironment } from './src/runtime/index.mjs';
 //   const env = createEnvironment('<!doctype html><body><div id=app></div></body>');

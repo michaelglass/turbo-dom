@@ -1,11 +1,11 @@
 // Jest environment adapter. Use in jest config:
 //
 //   // jest.config.js
-//   module.exports = { testEnvironment: 'turbodom/jest' }
+//   module.exports = { testEnvironment: 'turbo-dom/jest' }
 //
 // or point directly at this file:
 //
-//   testEnvironment: './node_modules/turbodom/dist/environment/jest.cjs'
+//   testEnvironment: './node_modules/turbo-dom/dist/environment/jest.cjs'
 //
 // Per-file / project options:
 //   testEnvironmentOptions: { html: '<!doctype html>...', url: 'http://localhost/' }
@@ -15,7 +15,7 @@
 const nodeEnv = require('jest-environment-node');
 const NodeEnvironment = nodeEnv.TestEnvironment || nodeEnv.default || nodeEnv;
 
-class TurbodomEnvironment extends NodeEnvironment {
+class TurboDomEnvironment extends NodeEnvironment {
   constructor(config, context) {
     super(config, context);
     const projectConfig = config.projectConfig || config;
@@ -26,15 +26,15 @@ class TurbodomEnvironment extends NodeEnvironment {
     await super.setup();
     // runtime is ESM; load it dynamically from this CJS environment
     const { installGlobals } = await import('./install.mjs');
-    installGlobals(this.global, this.__opts.turbodom || this.__opts);
+    installGlobals(this.global, this.__opts.turboDom || this.__opts);
   }
 
   async teardown() {
-    if (this.global && this.global.__turbodom) this.global.__turbodom.reset();
+    if (this.global && this.global.__turboDom) this.global.__turboDom.reset();
     await super.teardown();
   }
 }
 
-module.exports = TurbodomEnvironment;
-module.exports.default = TurbodomEnvironment;
-module.exports.TestEnvironment = TurbodomEnvironment;
+module.exports = TurboDomEnvironment;
+module.exports.default = TurboDomEnvironment;
+module.exports.TestEnvironment = TurboDomEnvironment;
