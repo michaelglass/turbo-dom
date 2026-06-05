@@ -158,7 +158,7 @@ export class Node extends EventTarget {
       else if (kids[i].nodeType === ELEMENT_NODE) kids[i].normalize();
     }
   }
-  replaceChildren(...nodes) { this.__kids = []; for (const n of nodes) this.appendChild(typeof n === 'string' ? this.ownerDocument.createTextNode(n) : n); }
+  replaceChildren(...nodes) { this.__kids = []; this.__touch(); for (const n of nodes) this.appendChild(typeof n === 'string' ? this.ownerDocument.createTextNode(n) : n); }
   // bitmask: 1 DISCONNECTED, 2 PRECEDING, 4 FOLLOWING, 8 CONTAINS, 16 CONTAINED_BY
   compareDocumentPosition(other) {
     if (other === this) return 0;
@@ -189,8 +189,14 @@ export class Node extends EventTarget {
   }
   set textContent(value) {
     this.__kids = [];
+    this.__touch();
     if (value !== '') this.appendChild(this.ownerDocument.createTextNode(String(value)));
   }
+
+  // bump the document version so getElementsBy* caches invalidate after direct
+  // __kids reassignments (innerHTML/textContent/replaceChildren) that bypass
+  // insertBefore/removeChild.
+  __touch() { const d = this.ownerDocument; if (d) d.__version = (d.__version || 0) + 1; }
 
   // window/document path for event propagation past the document
   get __owner() { return null; }
@@ -505,7 +511,7 @@ export class Element extends Node {
   before(...nodes) { const p = this.parentNode; if (!p) return; for (const n of nodes) p.insertBefore(toNode(this.ownerDocument, n), this); }
   after(...nodes) { const p = this.parentNode; if (!p) return; const ref = this.nextSibling; for (const n of nodes) p.insertBefore(toNode(this.ownerDocument, n), ref); }
   replaceWith(...nodes) { const p = this.parentNode; if (!p) return; const ref = this.nextSibling; this.remove(); for (const n of nodes) p.insertBefore(toNode(this.ownerDocument, n), ref); }
-  replaceChildren(...nodes) { this.__kids = []; for (const n of nodes) this.appendChild(toNode(this.ownerDocument, n)); }
+  replaceChildren(...nodes) { this.__kids = []; this.__touch(); for (const n of nodes) this.appendChild(toNode(this.ownerDocument, n)); }
 
   // ---- queries ----
   matches(sel) { return matchesSelector(this, sel); }
@@ -520,6 +526,7 @@ export class Element extends Node {
   set innerHTML(html) {
     const frag = native.parseFragment(String(html), this.__ns ? `${this.__ns} ${this.localName}` : this.localName);
     this.__kids = [];
+    this.__touch();
     for (const rawChild of frag.children) {
       if (rawChild.nodeType === DOCUMENT_FRAGMENT_NODE && rawChild.name === 'content') continue;
       const child = this.ownerDocument.__inflateNested(rawChild);
@@ -956,7 +963,11 @@ function isDescendant(node, ancestor) {
 }
 function notifyMutation(target, record) {
   const doc = target.ownerDocument;
-  if (!doc || !doc.__mo || doc.__mo.length === 0) return;
+  if (!doc) return;
+  // bump the DOM version on every structural/attribute mutation — invalidates
+  // the document's getElementsBy* caches. Unconditional (independent of observers).
+  doc.__version = (doc.__version || 0) + 1;
+  if (!doc.__mo || doc.__mo.length === 0) return;
   for (const reg of doc.__mo) {
     const { obs, target: obsTarget, options } = reg;
     const onTarget = record.target === obsTarget;
@@ -1109,6 +1120,9 @@ export class Document extends Node {
     this.__active = null;
     this.__mo = [];          // drop observers
     this.__moPending = null;
+    this.__version = (this.__version || 0) + 1; // invalidate getElementsBy* caches
+    this.__tagCache = null;
+    this.__classCache = null;
   }
 
   get documentElement() { return this.__children().find((n) => n.nodeType === ELEMENT_NODE && n.localName === 'html') ?? null; }
@@ -1191,8 +1205,28 @@ export class Document extends Node {
   }
   querySelector(sel) { return qsel(this, sel); }
   querySelectorAll(sel) { return qselAll(this, sel); }
-  getElementsByTagName(tag) { const self = this; return liveHTMLCollection(() => collectByTag(self, tag.toLowerCase())); }
-  getElementsByClassName(cls) { const self = this; const classes = cls.split(/\s+/).filter(Boolean); return liveHTMLCollection(() => collectByClass(self, classes)); }
+  // version-keyed cache: getElementsBy* is called repeatedly within a single
+  // query (e.g. RTL getByLabelText calls element.labels per element, each doing
+  // document.getElementsByTagName('label')). Without caching that's O(n²) tree
+  // walks. The cache invalidates whenever the DOM version bumps (any mutation).
+  __byTag(t) {
+    const v = this.__version || 0;
+    const c = this.__tagCache && this.__tagCache.get(t);
+    if (c && c.v === v) return c.arr;
+    const arr = collectByTag(this, t);
+    (this.__tagCache || (this.__tagCache = new Map())).set(t, { v, arr });
+    return arr;
+  }
+  __byClass(key, classes) {
+    const v = this.__version || 0;
+    const c = this.__classCache && this.__classCache.get(key);
+    if (c && c.v === v) return c.arr;
+    const arr = collectByClass(this, classes);
+    (this.__classCache || (this.__classCache = new Map())).set(key, { v, arr });
+    return arr;
+  }
+  getElementsByTagName(tag) { const self = this; const t = tag.toLowerCase(); return liveHTMLCollection(() => self.__byTag(t)); }
+  getElementsByClassName(cls) { const self = this; const classes = cls.split(/\s+/).filter(Boolean); return liveHTMLCollection(() => self.__byClass(cls, classes)); }
   contains(node) { return Node.prototype.contains.call(this, node); }
 
   // cookie jar: store name=value, strip attributes (path/Secure/SameSite/…),
