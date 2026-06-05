@@ -1,11 +1,11 @@
 // Jest environment adapter. Use in jest config:
 //
 //   // jest.config.js
-//   module.exports = { testEnvironment: 'turbo-dom/jest' }
+//   module.exports = { testEnvironment: '@miaskiewicz/turbo-dom/jest' }
 //
 // or point directly at this file:
 //
-//   testEnvironment: './node_modules/turbo-dom/dist/environment/jest.cjs'
+//   testEnvironment: './node_modules/@miaskiewicz/turbo-dom/dist/environment/jest.cjs'
 //
 // Per-file / project options:
 //   testEnvironmentOptions: { html: '<!doctype html>...', url: 'http://localhost/' }

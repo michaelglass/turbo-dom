@@ -6,7 +6,7 @@
 // (resolves to the package "vitest-environment-turbo-dom", which re-exports this),
 // or point directly at this file:
 //
-//   test: { environment: './node_modules/turbo-dom/dist/environment/vitest.mjs' }
+//   test: { environment: './node_modules/@miaskiewicz/turbo-dom/dist/environment/vitest.mjs' }
 //
 // Per-file options via environmentOptions:
 //   test: { environmentOptions: { turboDom: { html: '<!doctype html>...', url: 'http://localhost/' } } }

@@ -9,7 +9,7 @@ JavaScript but is **lazy** — nodes inflate from a compact typed-array buffer o
 test touches them, and `window` globals materialize only on first use.
 
 ```bash
-npm install -D turbo-dom
+npm install -D @miaskiewicz/turbo-dom
 ```
 
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
@@ -28,8 +28,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    environment: 'turbo-dom', // resolves to vitest-environment-turbo-dom
-    // or: environment: './node_modules/turbo-dom/src/environment/vitest.mjs'
+    environment: '@miaskiewicz/turbo-dom/environment/vitest',
   },
 });
 ```
@@ -39,7 +38,7 @@ export default defineConfig({
 ```js
 // jest.config.js
 module.exports = {
-  testEnvironment: 'turbo-dom/jest',
+  testEnvironment: '@miaskiewicz/turbo-dom/jest',
 };
 ```
 
@@ -60,7 +59,7 @@ test('counter increments', async () => {
 ### Without a test runner
 
 ```js
-import { createEnvironment } from 'turbo-dom/runtime';
+import { createEnvironment } from '@miaskiewicz/turbo-dom/runtime';
 
 const env = createEnvironment('<!doctype html><body><div id="app"></div></body>');
 env.document.querySelector('#app');     // nodes inflate lazily from the parse buffer
@@ -71,7 +70,7 @@ env.reset();                            // fast per-file reset (reuses the parse
 ### Just the parser
 
 ```js
-const { parse, parseBuffer, parseFragment } = require('turbo-dom');
+const { parse, parseBuffer, parseFragment } = require('@miaskiewicz/turbo-dom');
 
 parse('<div id=a><span>hi</span></div>');         // nested tree
 parseBuffer('<div id=a>...</div>');                // compact SoA typed-array buffer
