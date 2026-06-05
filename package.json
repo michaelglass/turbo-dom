@@ -1,0 +1,29 @@
+{
+  "name": "fast-dom-parser",
+  "version": "0.0.1",
+  "description": "html5ever-backed native parser for fast-dom (Layer 1)",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "fast-dom-parser",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "build:wasm": "cargo build --release --no-default-features --features wasm-bind --target wasm32-unknown-unknown",
+    "test": "node --test 'test/*.mjs'",
+    "test:rust": "cargo test --lib",
+    "test:all": "npm run build && npm run test:rust && npm test",
+    "conformance": "node harness/conformance.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  }
+}

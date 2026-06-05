@@ -1,0 +1,11 @@
+# Rust (Cargo.lock IS committed — this is a shippable addon, not a library)
+/target
+
+# Node
+node_modules
+
+# napi build outputs (platform binaries — rebuilt locally / in CI)
+*.node
+
+# wasm build output
+*.wasm

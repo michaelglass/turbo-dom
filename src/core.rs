@@ -1,0 +1,288 @@
+//! Shared parser core. No binding deps — html5ever in, plain nested tree out.
+//! Both front-ends (napi-rs native, wasm-bindgen fallback) wrap this unchanged.
+//!
+//! Plan note: this is the "full marshaling" version — a *complete* tree.
+//! The SoA flat-buffer (architecture Layer 1) is a later optimization, gated on
+//! marshaling proving to be the actual cost. Do not SoA-ify here yet.
+
+use html5ever::driver::ParseOpts;
+use html5ever::tendril::TendrilSink;
+use html5ever::tree_builder::TreeBuilderOpts;
+use html5ever::{parse_document, parse_fragment, local_name, namespace_url, ns, LocalName, QualName};
+use markup5ever_rcdom::{Handle, NodeData, RcDom};
+
+/// DOM nodeType constants (subset html5ever can emit).
+pub const ELEMENT_NODE: u8 = 1;
+pub const TEXT_NODE: u8 = 3;
+pub const PROCESSING_INSTRUCTION_NODE: u8 = 7;
+pub const COMMENT_NODE: u8 = 8;
+pub const DOCUMENT_NODE: u8 = 9;
+pub const DOCUMENT_TYPE_NODE: u8 = 10;
+pub const DOCUMENT_FRAGMENT_NODE: u8 = 11;
+
+#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct Attr {
+    pub name: String,
+    pub value: String,
+    /// Namespace prefix for foreign-content attrs ("xlink", "xml", "xmlns"); empty otherwise.
+    pub prefix: String,
+}
+
+/// One marshaled DOM node. Nested children = complete tree, no lazy indices.
+#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize))]
+#[derive(Debug, Clone)]
+pub struct Node {
+    /// DOM nodeType.
+    pub node_type: u8,
+    /// Tag name (element) lowercased, or "#text"/"#comment"/"#document"/doctype name.
+    pub name: String,
+    /// Text/comment/PI data; empty for elements.
+    pub value: String,
+    /// Element namespace, html5lib-style short form: "" (html), "svg", "math". Empty for non-elements.
+    pub namespace: String,
+    /// Doctype PUBLIC id; empty otherwise.
+    pub public_id: String,
+    /// Doctype SYSTEM id; empty otherwise.
+    pub system_id: String,
+    pub attrs: Vec<Attr>,
+    pub children: Vec<Node>,
+}
+
+/// Parse options matching html5lib-tests defaults (scripting flag off, so
+/// `<noscript>` content is parsed as markup rather than rawtext).
+fn opts() -> ParseOpts {
+    ParseOpts {
+        tree_builder: TreeBuilderOpts { scripting_enabled: false, ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// Parse a full HTML document. Always yields a Document root (nodeType 9).
+pub fn parse_html_document(html: &str) -> Node {
+    let dom = parse_document(RcDom::default(), opts())
+        .from_utf8()
+        .read_from(&mut html.as_bytes())
+        .expect("RcDom read_from is infallible over a byte slice");
+    walk(&dom.document)
+}
+
+/// Parse an HTML fragment (e.g. an `innerHTML=` set) in `<body>` context.
+/// Returns a synthetic Document-fragment-ish root whose children are the parsed nodes.
+pub fn parse_html_fragment(html: &str) -> Node {
+    parse_html_fragment_in(html, "", "body")
+}
+
+/// Parse a fragment given an html5lib-style context string:
+/// "" / "body" / "td" (html ns) or "svg path" / "math ms" (foreign ns).
+pub fn parse_html_fragment_context(html: &str, context: &str) -> Node {
+    let (ns, local) = match context {
+        "" => ("", "body"),
+        s => match s.split_once(' ') {
+            Some(("svg", local)) => ("svg", local),
+            Some(("math", local)) => ("math", local),
+            Some((_, local)) => ("", local),
+            None => ("", s),
+        },
+    };
+    parse_html_fragment_in(html, ns, local)
+}
+
+/// Parse a fragment in an explicit context element.
+/// `context_ns`: "" (html), "svg", or "math"; `context_local`: the element local name.
+pub fn parse_html_fragment_in(html: &str, context_ns: &str, context_local: &str) -> Node {
+    let ns = match context_ns {
+        "svg" => ns!(svg),
+        "math" => ns!(mathml),
+        _ => ns!(html),
+    };
+    let ctx = QualName::new(None, ns, LocalName::from(context_local));
+    let dom = parse_fragment(RcDom::default(), opts(), ctx, vec![])
+        .from_utf8()
+        .read_from(&mut html.as_bytes())
+        .expect("RcDom read_from is infallible over a byte slice");
+    // parse_fragment wraps results under a synthetic <html> element; unwrap it.
+    let root = walk(&dom.document);
+    let mut frag = Node {
+        node_type: DOCUMENT_NODE,
+        name: "#document-fragment".to_string(),
+        value: String::new(),
+        namespace: String::new(),
+        public_id: String::new(),
+        system_id: String::new(),
+        attrs: Vec::new(),
+        children: Vec::new(),
+    };
+    for child in root.children {
+        if child.node_type == ELEMENT_NODE && child.name == "html" {
+            frag.children.extend(child.children);
+        } else {
+            frag.children.push(child);
+        }
+    }
+    frag
+}
+
+fn walk(handle: &Handle) -> Node {
+    let node = handle;
+    let mut public_id = String::new();
+    let mut system_id = String::new();
+    let (node_type, name, value, namespace, attrs) = match &node.data {
+        NodeData::Document => {
+            (DOCUMENT_NODE, "#document".to_string(), String::new(), String::new(), Vec::new())
+        }
+        NodeData::Doctype { name, public_id: pub_id, system_id: sys_id } => {
+            public_id = pub_id.to_string();
+            system_id = sys_id.to_string();
+            (DOCUMENT_TYPE_NODE, name.to_string(), String::new(), String::new(), Vec::new())
+        }
+        NodeData::Text { contents } => (
+            TEXT_NODE,
+            "#text".to_string(),
+            contents.borrow().to_string(),
+            String::new(),
+            Vec::new(),
+        ),
+        NodeData::Comment { contents } => (
+            COMMENT_NODE,
+            "#comment".to_string(),
+            contents.to_string(),
+            String::new(),
+            Vec::new(),
+        ),
+        NodeData::ProcessingInstruction { target, contents } => (
+            PROCESSING_INSTRUCTION_NODE,
+            target.to_string(),
+            contents.to_string(),
+            String::new(),
+            Vec::new(),
+        ),
+        NodeData::Element { name, attrs, .. } => {
+            let a = attrs
+                .borrow()
+                .iter()
+                .map(|attr| Attr {
+                    name: attr.name.local.to_string(),
+                    value: attr.value.to_string(),
+                    prefix: attr.name.prefix.as_ref().map(|p| p.to_string()).unwrap_or_default(),
+                })
+                .collect();
+            // html5lib short namespace form: "" (html), "svg", "math".
+            let ns = if name.ns == ns!(svg) {
+                "svg".to_string()
+            } else if name.ns == ns!(mathml) {
+                "math".to_string()
+            } else {
+                String::new()
+            };
+            (ELEMENT_NODE, name.local.to_string(), String::new(), ns, a)
+        }
+    };
+
+    let mut children: Vec<Node> = node.children.borrow().iter().map(walk).collect();
+
+    // <template> content lives in a separate document fragment, not in children.
+    // html5lib prints it as a synthetic `content` fragment node holding the parsed tree.
+    if let NodeData::Element { template_contents, .. } = &node.data {
+        if let Some(contents) = &*template_contents.borrow() {
+            let inner = contents.children.borrow().iter().map(walk).collect();
+            children.push(Node {
+                node_type: DOCUMENT_FRAGMENT_NODE,
+                name: "content".to_string(),
+                value: String::new(),
+                namespace: String::new(),
+                public_id: String::new(),
+                system_id: String::new(),
+                attrs: Vec::new(),
+                children: inner,
+            });
+        }
+    }
+
+    Node { node_type, name, value, namespace, public_id, system_id, attrs, children }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn first<'a>(n: &'a Node, pred: &dyn Fn(&Node) -> bool) -> Option<&'a Node> {
+        if pred(n) {
+            return Some(n);
+        }
+        for c in &n.children {
+            if let Some(h) = first(c, pred) {
+                return Some(h);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn document_has_html_head_body() {
+        let doc = parse_html_document("<div>hi</div>");
+        assert_eq!(doc.node_type, DOCUMENT_NODE);
+        assert!(first(&doc, &|n| n.node_type == ELEMENT_NODE && n.name == "html").is_some());
+        assert!(first(&doc, &|n| n.node_type == ELEMENT_NODE && n.name == "head").is_some());
+        assert!(first(&doc, &|n| n.node_type == ELEMENT_NODE && n.name == "body").is_some());
+    }
+
+    #[test]
+    fn attrs_marshaled_in_order() {
+        let doc = parse_html_document("<div id=\"a\" class=\"x\"></div>");
+        let div = first(&doc, &|n| n.name == "div").unwrap();
+        assert_eq!(div.attrs[0].name, "id");
+        assert_eq!(div.attrs[0].value, "a");
+        assert_eq!(div.attrs[1].name, "class");
+    }
+
+    #[test]
+    fn doctype_public_system_captured() {
+        let doc = parse_html_document(
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://x/strict.dtd\"><p>x",
+        );
+        let dt = first(&doc, &|n| n.node_type == DOCUMENT_TYPE_NODE).unwrap();
+        assert_eq!(dt.name, "html");
+        assert_eq!(dt.public_id, "-//W3C//DTD HTML 4.01//EN");
+        assert_eq!(dt.system_id, "http://x/strict.dtd");
+    }
+
+    #[test]
+    fn foster_parenting_table() {
+        let doc = parse_html_document("<table>oops<tr><td>x</td></tr></table>");
+        let body = first(&doc, &|n| n.name == "body").unwrap();
+        let fostered = body
+            .children
+            .iter()
+            .any(|c| c.node_type == TEXT_NODE && c.value.contains("oops"));
+        assert!(fostered, "stray text must be fostered out of <table>");
+    }
+
+    #[test]
+    fn svg_namespace_short_form() {
+        let doc = parse_html_document("<svg><rect/></svg>");
+        let svg = first(&doc, &|n| n.name == "svg").unwrap();
+        assert_eq!(svg.namespace, "svg");
+    }
+
+    #[test]
+    fn template_content_separated() {
+        let frag = parse_html_fragment("<template>Hello</template>");
+        let tmpl = first(&frag, &|n| n.name == "template").unwrap();
+        let content = tmpl
+            .children
+            .iter()
+            .find(|c| c.node_type == DOCUMENT_FRAGMENT_NODE)
+            .expect("template has a content fragment");
+        assert_eq!(content.name, "content");
+        assert_eq!(content.children[0].value, "Hello");
+    }
+
+    #[test]
+    fn fragment_context_namespace() {
+        let frag = parse_html_fragment_context("<rect/>", "svg path");
+        // context is svg path, so a bare <rect> parses in the SVG namespace
+        let rect = first(&frag, &|n| n.name == "rect");
+        assert!(rect.map(|n| n.namespace == "svg").unwrap_or(false));
+    }
+}
