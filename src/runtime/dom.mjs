@@ -22,12 +22,12 @@ import { serializeInner, serializeOuter } from './html-serialize.mjs';
 function cachedQSA(node, sel) {
   const doc = node.ownerDocument || node;
   const v = doc.__version || 0;
-  let cache = node.__qCache;
-  if (cache) { const c = cache.get('a:' + sel); if (c !== undefined && c.v === v) return c.r; }
-  else cache = node.__qCache = new Map();
+  let cache = node.__qaCache;
+  if (cache) { const c = cache.get(sel); if (c !== undefined && c.v === v) return c.r; }
+  else cache = node.__qaCache = new Map();
   if (cache.size > 512) cache.clear();
   const r = qselAll(node, sel);
-  cache.set('a:' + sel, { v, r });
+  cache.set(sel, { v, r });
   return r;
 }
 // memoize the className → class-list split (pure; the regex split showed up per
@@ -45,12 +45,12 @@ function splitClasses(cls) {
 function cachedQS(node, sel) {
   const doc = node.ownerDocument || node;
   const v = doc.__version || 0;
-  let cache = node.__qCache;
-  if (cache) { const c = cache.get('s:' + sel); if (c !== undefined && c.v === v) return c.r; }
-  else cache = node.__qCache = new Map();
+  let cache = node.__qsCache;
+  if (cache) { const c = cache.get(sel); if (c !== undefined && c.v === v) return c.r; }
+  else cache = node.__qsCache = new Map();
   if (cache.size > 512) cache.clear();
   const r = qsel(node, sel);
-  cache.set('s:' + sel, { v, r });
+  cache.set(sel, { v, r });
   return r;
 }
 import { Buffer } from './buffer.mjs';
@@ -1284,8 +1284,22 @@ export class Document extends Node {
     (this.__classCache || (this.__classCache = new Map())).set(key, { v, arr });
     return arr;
   }
-  getElementsByTagName(tag) { const self = this; const t = tag.toLowerCase(); return liveHTMLCollection(() => self.__byTag(t)); }
-  getElementsByClassName(cls) { const self = this; const classes = splitClasses(cls); return liveHTMLCollection(() => self.__byClass(cls, classes)); }
+  // Memoize the live HTMLCollection Proxy per key. Its getArray closure re-reads
+  // the version-cached __byTag/__byClass on every access, so a memoized Proxy still
+  // reflects mutations — only the per-call Proxy allocation is saved.
+  getElementsByTagName(tag) {
+    const t = tag.toLowerCase();
+    const m = this.__tagColl || (this.__tagColl = new Map());
+    let coll = m.get(t);
+    if (!coll) { const self = this; coll = liveHTMLCollection(() => self.__byTag(t)); m.set(t, coll); }
+    return coll;
+  }
+  getElementsByClassName(cls) {
+    const m = this.__classColl || (this.__classColl = new Map());
+    let coll = m.get(cls);
+    if (!coll) { const self = this; const classes = splitClasses(cls); coll = liveHTMLCollection(() => self.__byClass(cls, classes)); m.set(cls, coll); }
+    return coll;
+  }
   contains(node) { return Node.prototype.contains.call(this, node); }
 
   // cookie jar: store name=value, strip attributes (path/Secure/SameSite/…),

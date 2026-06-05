@@ -307,7 +307,7 @@ function simpleMatcher(selector) {
   if (!m) return null;
   const s = m[1];
   if (s[0] === '#') { const id = s.slice(1); return (el) => el.getAttribute('id') === id; }
-  if (s[0] === '.') { const cls = s.slice(1); return (el) => el.classList.contains(cls); }
+  if (s[0] === '.') { const cls = s.slice(1); return (el) => { const cn = el.getAttribute('class'); return cn ? hasClass(cn, cls) : false; }; }
   const tag = s.toLowerCase(); return (el) => el.localName === tag;
 }
 
