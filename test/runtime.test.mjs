@@ -457,3 +457,37 @@ test('cascade skips @media/@keyframes blocks (honest partial)', () => {
   const { document, window } = env('<style>.box{color:red}@media(min-width:1px){.box{color:blue}}</style><div id=d class=box></div>');
   assert.equal(window.getComputedStyle(document.getElementById('d')).color, 'red'); // media rule ignored, base applies
 });
+
+// --------------------------------- 0.1.30 cascade + sanitize follow-ups ----
+// #3: invalid typed-input value sanitizes to '' (WHATWG), not retain prior
+test('number input invalid value sanitizes to empty (not retain prior)', () => {
+  const { document } = env('<input id=n type=number>');
+  const n = document.getElementById('n');
+  n.value = '0'; assert.equal(n.value, '0');
+  n.value = '.'; assert.equal(n.value, '');   // was "0" retained before
+  n.value = '5'; assert.equal(n.value, '5');
+  n.value = '-'; assert.equal(n.value, '');
+});
+
+// #1: zero-length computed values px-normalize
+test('cascade px-normalizes bare 0 for length properties', () => {
+  const { document, window } = env('<style>.t{flex-basis:0;opacity:0;z-index:0;margin:0}</style><div id=d class=t></div>');
+  const cs = window.getComputedStyle(document.getElementById('d'));
+  assert.equal(cs.flexBasis, '0px');
+  assert.equal(cs.marginTop, '0px');
+  assert.equal(cs.opacity, '0');  // NOT a length → stays bare
+  assert.equal(cs.zIndex, '0');   // NOT a length → stays bare
+});
+
+// #2: shorthand expands to longhands in computed style
+test('cascade expands border/margin/padding shorthands to longhands', () => {
+  const { document, window } = env('<style>.t{border:1px solid red;margin:5px 10px;padding:2px}</style><div id=d class=t></div>');
+  const cs = window.getComputedStyle(document.getElementById('d'));
+  assert.match(cs.borderWidth, /1px/);
+  assert.equal(cs.borderStyle, 'solid');
+  assert.equal(cs.borderColor, 'red');
+  assert.equal(cs.marginTop, '5px');
+  assert.equal(cs.marginRight, '10px');
+  assert.equal(cs.marginBottom, '5px'); // 2-value: bottom=top
+  assert.equal(cs.paddingLeft, '2px');  // 1-value: all sides
+});

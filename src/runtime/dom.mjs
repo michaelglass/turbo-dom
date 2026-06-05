@@ -461,13 +461,13 @@ export class Element extends Node {
     const t = this.localName;
     if (t === 'select') { for (const o of this.getElementsByTagName('option')) o.selected = (o.value === String(x)); return; }
     if (t === 'option') { this.setAttribute('value', x); return; }
-    // typed <input> sanitizes per the value-sanitization algorithm: invalid
-    // values for date/time/number/etc are rejected (value left unchanged), so
-    // user-event typing them char-by-char doesn't emit bogus partial values.
+    // typed <input> runs the WHATWG value-sanitization algorithm: a value that
+    // isn't valid for date/time/number/etc becomes the EMPTY string (not the prior
+    // value). Matches real browsers — React's value tracker then sees the change and
+    // fires onChange, where retaining the old value would silently swallow it.
     if (t === 'input') {
       const sanitized = sanitizeInputValue((this.getAttribute('type') || 'text').toLowerCase(), String(x));
-      if (sanitized === null) return; // invalid → reject, keep current value
-      this.__value = sanitized;
+      this.__value = sanitized === null ? '' : sanitized;
     } else {
       this.__value = String(x);
     }

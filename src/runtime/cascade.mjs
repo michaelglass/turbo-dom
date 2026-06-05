@@ -23,6 +23,43 @@ const SHORTHAND_OF = {
   'padding-top': 'padding', 'padding-right': 'padding', 'padding-bottom': 'padding', 'padding-left': 'padding',
 };
 
+// Length properties whose bare `0` real browsers serialize as `0px` in computed style.
+const LENGTH_PROPS = new Set([
+  'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+  'top', 'right', 'bottom', 'left', 'flex-basis', 'gap', 'row-gap', 'column-gap',
+  'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+  'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'font-size', 'letter-spacing', 'word-spacing', 'text-indent',
+]);
+
+const BORDER_STYLES = new Set(['none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset']);
+
+// Expand the common shorthands into longhands so longhand computed getters resolve
+// (e.g. `border:1px solid` → borderWidth '1px'). Cheap, test-time only; later
+// declarations of the same longhand override naturally (cascade order preserved).
+function setProp(map, name, val) {
+  map.set(name, val);
+  if (name === 'margin' || name === 'padding') {
+    const t = val.trim().split(/\s+/);
+    const top = t[0], right = t[1] ?? top, bottom = t[2] ?? top, left = t[3] ?? right;
+    map.set(name + '-top', top); map.set(name + '-right', right);
+    map.set(name + '-bottom', bottom); map.set(name + '-left', left);
+  } else if (name === 'border') {
+    let width, style, color;
+    for (const p of val.trim().split(/\s+/)) {
+      if (BORDER_STYLES.has(p)) style = p;
+      else if (/^(thin|medium|thick)$/.test(p) || /^[\d.]+(px|em|rem|%|pt|vh|vw)?$/.test(p)) width = p;
+      else color = p;
+    }
+    if (width !== undefined) { map.set('border-width', width); for (const s of ['top', 'right', 'bottom', 'left']) map.set(`border-${s}-width`, width); }
+    if (style !== undefined) map.set('border-style', style);
+    if (color !== undefined) map.set('border-color', color);
+  } else if (name === 'background' && !/\s/.test(val.trim())) {
+    map.set('background-color', val.trim());
+  }
+}
+
 function parseDecls(text, into) {
   const map = into || new Map();
   for (const decl of text.split(';')) {
@@ -30,7 +67,7 @@ function parseDecls(text, into) {
     if (c === -1) continue;
     const name = decl.slice(0, c).trim().toLowerCase();
     if (!name) continue;
-    map.set(name, decl.slice(c + 1).trim().replace(/\s*!\s*important\s*$/i, ''));
+    setProp(map, name, decl.slice(c + 1).trim().replace(/\s*!\s*important\s*$/i, ''));
   }
   return map;
 }
@@ -101,11 +138,15 @@ function resolve(el, rules) {
 }
 
 function lookup(map, prop) {
-  const direct = map.get(prop);
-  if (direct !== undefined) return direct;
-  const sh = SHORTHAND_OF[prop];
-  if (sh) { const v = map.get(sh); if (v !== undefined && !/\s/.test(v.trim())) return v; }
-  return '';
+  let v = map.get(prop);
+  if (v === undefined) {
+    const sh = SHORTHAND_OF[prop];
+    if (sh) { const s = map.get(sh); if (s !== undefined && !/\s/.test(s.trim())) v = s; }
+  }
+  if (v === undefined) return '';
+  // px-normalize a bare `0` for length properties (browsers report `0px`)
+  if (v === '0' && LENGTH_PROPS.has(prop)) return '0px';
+  return v;
 }
 
 function makeProxy(map, v) {
