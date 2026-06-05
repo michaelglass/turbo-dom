@@ -90,6 +90,9 @@ jobs:
       - name: vitest integration (env adapter, React + RTL + user-event)
         run: npm run test:vitest
 
+      - name: jest integration (env adapter, React + RTL)
+        run: npm run test:jest
+
       - name: html5lib conformance report
         run: npm run conformance
 

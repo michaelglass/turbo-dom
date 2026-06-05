@@ -1,6 +1,6 @@
 {
   "name": "@miaskiewicz/turbo-dom",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -65,7 +65,8 @@
     "bench:wasm": "node bench/wasm.mjs",
     "bench:all": "node bench/parse.mjs && node bench/construct.mjs && node bench/suite.mjs && node bench/wasm.mjs",
     "prepublishOnly": "napi build --platform --release",
-    "test:vitest": "vitest run -c test-vitest/vitest.config.mjs"
+    "test:vitest": "vitest run -c test-vitest/vitest.config.mjs",
+    "test:jest": "jest -c test-jest/jest.config.cjs"
   },
   "keywords": [
     "dom",
@@ -110,10 +111,13 @@
     "@napi-rs/cli": "^2.18.4",
     "@radix-ui/react-tabs": "^1.1.13",
     "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "downshift": "^9.3.6",
     "happy-dom": "^20.10.1",
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
     "jsdom": "^29.1.1",
     "parse5": "^8.0.1",
     "react": "^19.2.7",
