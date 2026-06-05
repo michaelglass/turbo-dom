@@ -106,6 +106,27 @@ test('window web-platform globals exist and work', () => {
   assert.equal(img.getAttribute('width'), '10');
 });
 
+test('legacy createEvent + initEvent (react-dom dev path) + performance.now', () => {
+  const { document, window } = fresh();
+  const evt = document.createEvent('Event');
+  assert.equal(typeof evt.initEvent, 'function');
+  evt.initEvent('custom', true, true);
+  assert.equal(evt.type, 'custom');
+  assert.equal(evt.bubbles, true);
+  assert.equal(evt.cancelable, true);
+  // it actually dispatches with the initialized type
+  let got = null;
+  const el = document.getElementById('root');
+  el.addEventListener('custom', (e) => { got = e.type; });
+  el.dispatchEvent(evt);
+  assert.equal(got, 'custom');
+  // typed createEvent + init
+  const me = document.createEvent('MouseEvent');
+  assert.equal(typeof me.initMouseEvent, 'function');
+  // performance.now returns sane small ms (not an hrtime epoch)
+  assert.ok(window.performance.now() < 1e9);
+});
+
 test('XMLHttpRequest constructs + has the expected shape', () => {
   const { window } = fresh();
   const xhr = new window.XMLHttpRequest();

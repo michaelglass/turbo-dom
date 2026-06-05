@@ -41,12 +41,23 @@ export class Event {
   set returnValue(v) { if (v === false) this.preventDefault(); }
 
   composedPath() { return this._path.slice(); }
+
+  // legacy init — react-dom's dev rethrow path uses createEvent('Event')+initEvent
+  initEvent(type, bubbles = false, cancelable = false) {
+    this.type = String(type);
+    this.bubbles = !!bubbles;
+    this.cancelable = !!cancelable;
+  }
 }
 
 export class CustomEvent extends Event {
   constructor(type, init = {}) {
     super(type, init);
     this.detail = init.detail ?? null;
+  }
+  initCustomEvent(type, bubbles = false, cancelable = false, detail = null) {
+    this.initEvent(type, bubbles, cancelable);
+    this.detail = detail;
   }
 }
 
@@ -68,12 +79,19 @@ const TYPED_DEFAULTS = {
 
 function makeTyped(name) {
   const defaults = TYPED_DEFAULTS[name];
-  return class extends Event {
+  const cls = class extends Event {
     constructor(type, init = {}) {
       super(type, init);
       Object.assign(this, defaults, init);
     }
   };
+  // legacy initMouseEvent/initKeyboardEvent/initUIEvent(type, bubbles, cancelable, ...rest)
+  cls.prototype['init' + name] = function (type, bubbles = false, cancelable = false, ...rest) {
+    this.initEvent(type, bubbles, cancelable);
+    // view is the common 4th arg for UI/Mouse/Keyboard events; ignore the rest's exact slots
+    if (rest.length) this.view = rest[0];
+  };
+  return cls;
 }
 
 export const UIEvent = makeTyped('UIEvent');

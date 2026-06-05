@@ -7,7 +7,10 @@
 // across the boundary — a buffer-backed read and an owned read are indistinguishable.
 
 import { createRequire } from 'node:module';
-import { EventTarget, Event, CustomEvent } from './events.mjs';
+import {
+  EventTarget, Event, CustomEvent,
+  UIEvent, MouseEvent, KeyboardEvent, FocusEvent,
+} from './events.mjs';
 import { liveNodeList, liveHTMLCollection } from './collections.mjs';
 import { matchesSelector, querySelector as qsel, querySelectorAll as qselAll } from './selectors.mjs';
 import { serializeInner, serializeOuter } from './html-serialize.mjs';
@@ -988,7 +991,16 @@ export class Document extends Node {
   createTextNode(data) { return new Text(this, String(data)); }
   createComment(data) { return new Comment(this, String(data)); }
   createDocumentFragment() { return new DocumentFragment(this); }
-  createEvent() { return new Event(''); }
+  createEvent(type = 'Event') {
+    switch (String(type)) {
+      case 'CustomEvent': return new CustomEvent('');
+      case 'MouseEvent': case 'MouseEvents': return new MouseEvent('');
+      case 'KeyboardEvent': case 'KeyEvents': return new KeyboardEvent('');
+      case 'UIEvent': case 'UIEvents': return new UIEvent('');
+      case 'FocusEvent': return new FocusEvent('');
+      default: return new Event('');
+    }
+  }
   createRange() { return new Range(this); }
   createAttribute(name) { return { name, value: '', ownerElement: null }; }
   createComment(data) { return new Comment(this, String(data)); }

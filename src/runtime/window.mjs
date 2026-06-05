@@ -179,9 +179,9 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
   };
 }
 
+import { performance as nodePerformance } from 'node:perf_hooks';
 function performanceNow() {
-  const [s, ns] = process.hrtime();
-  return s * 1000 + ns / 1e6;
+  return nodePerformance.now();
 }
 
 let __objUrlSeq = 0;
