@@ -78,6 +78,14 @@ Latest (darwin-arm64, Node 24), vs jsdom / happy-dom:
   querySelectorAll/getElementsBy*/getElementById results are cached per (selector,
   Document.__version); a static querySelectorAll list is safe to reuse until the next
   mutation. cachedQSA/cachedQS + Document.__byTag/__byClass/__idCache.
+- **Per-node memoized live views.** `childNodes`/`children` and `getComputedStyle(el)` are
+  cached on the node (`__childNodesList`/`__childrenList`/`__computedStyle`) — correct because
+  each reads `__children()`/`el.style` LIVE, so the cached object always reflects current state
+  (no version key needed). Bonus: `el.childNodes === el.childNodes` is stable (spec-correct).
+  Don't add a variant that snapshots the array at creation — must read through live.
+- **dispatchEvent skips propagation when no listener is on the path.** One ancestor walk builds
+  the path AND flags `hasListener`; capture/target/bubble loops run only if true (preClick +
+  default actions still run). React fires thousands of listener-less events.
 - **Cache invalidation = Document.__version.** EVERY mutation must bump it: notifyMutation
   bumps it unconditionally (insert/remove/setAttribute), and __touch() covers direct __kids
   rewrites (innerHTML/textContent/replaceChildren). If you add a new mutation path that

@@ -83,8 +83,13 @@ export function makeMatchMedia() {
 // invents cascade/layout numbers. A property that wasn't set reads as ''.
 export function makeGetComputedStyle() {
   return (el) => {
+    // The Proxy reads el.style LIVE on each access, so one cached Proxy per
+    // element is always correct (no version needed) — avoids re-allocating a
+    // Proxy on every call, which dom-accessibility-api does per element in
+    // getByRole/getByText visibility checks.
+    if (el && el.__computedStyle) return el.__computedStyle;
     const style = el && el.style ? el.style : null;
-    return new Proxy({}, {
+    const proxy = new Proxy({}, {
       get(_t, key) {
         if (key === 'getPropertyValue') return (p) => (style ? style.getPropertyValue(p) : '');
         if (key === '__honest') return 'computed style is inline-only; no layout/cascade available';
@@ -92,6 +97,8 @@ export function makeGetComputedStyle() {
         return style ? style[key] : '';
       },
     });
+    if (el) el.__computedStyle = proxy;
+    return proxy;
   };
 }
 

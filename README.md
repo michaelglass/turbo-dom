@@ -105,12 +105,16 @@ the suite row (ms/file, lower = faster):
 
 | benchmark | turbo-dom | happy-dom | jsdom |
 |---|---:|---:|---:|
-| **per-file setup + 1 query** (ops/s) | **5,950** | 611 | 260 |
-| **realistic suite**, 200 files (ms/file) | **0.13** | 1.50 | 3.38 |
+| **per-file setup + 1 query** (ops/s) | **5,900** | 600 | 250 |
+| **realistic suite**, 200 files (ms/file) | **0.15** | 2.1 | 4.9 |
 | **parse 56 KB SSR** (ops/s) | **478** | 43 | 26 |
 | **parse 20 KB real page** (ops/s) | **4,203** | 190 | 114 |
-| repeated query throughput (iters/s) | **915k** | 615k | 3k |
+| repeated query throughput (iters/s) | **920k** | 600k | 3k |
 | html5lib conformance | **99.72%** | 37.35% | 97.03% |
+
+Roughly **~25–30× jsdom** and **~10–14× happy-dom** on per-file setup / realistic
+suites, **18–37×** on parsing, and it edges happy-dom on repeated queries while
+staying 99.7% spec-correct.
 
 **turbo-dom wins across the board on what test suites actually do**: per-file
 construction (~10× happy-dom, ~23× jsdom), parsing, realistic suites (~10× happy-dom,

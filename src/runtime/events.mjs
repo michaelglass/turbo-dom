@@ -150,8 +150,20 @@ export class EventTarget {
   dispatchEvent(event) {
     if (!(event instanceof Event)) throw new TypeError('dispatchEvent requires an Event');
     event.target = this;
-    event._path = this.__eventPath();
-    const path = event._path;
+
+    // Single ancestor walk: build the path AND note whether any node on it has a
+    // listener for this type. React fires thousands of events with zero matching
+    // listeners on the path — those skip the capture/target/bubble invoke loops.
+    const type = event.type;
+    const path = [];
+    let hasListener = false;
+    let node = this;
+    while (node) {
+      path.push(node);
+      if (!hasListener) { const l = node.__listeners && node.__listeners.get(type); if (l && l.length) hasListener = true; }
+      node = node.parentNode || node.__owner || null;
+    }
+    event._path = path;
 
     // pre-click activation (WHATWG): checkbox/radio toggle BEFORE click listeners
     // run, so React's change detection sees the new value. Undone if preventDefault.
@@ -185,18 +197,21 @@ export class EventTarget {
       }
     };
 
-    // capturing: root -> just before target
-    for (let i = path.length - 1; i >= 1; i--) {
-      if (event._stopPropagation) break;
-      invoke(path[i], PHASE_CAPTURING);
-    }
-    // at target
-    if (!event._stopPropagation) invoke(path[0], PHASE_AT_TARGET);
-    // bubbling: target's parent -> root
-    if (event.bubbles) {
-      for (let i = 1; i < path.length; i++) {
+    // no listener anywhere on the path → skip all three propagation phases
+    if (hasListener) {
+      // capturing: root -> just before target
+      for (let i = path.length - 1; i >= 1; i--) {
         if (event._stopPropagation) break;
-        invoke(path[i], PHASE_BUBBLING);
+        invoke(path[i], PHASE_CAPTURING);
+      }
+      // at target
+      if (!event._stopPropagation) invoke(path[0], PHASE_AT_TARGET);
+      // bubbling: target's parent -> root
+      if (event.bubbles) {
+        for (let i = 1; i < path.length; i++) {
+          if (event._stopPropagation) break;
+          invoke(path[i], PHASE_BUBBLING);
+        }
       }
     }
 

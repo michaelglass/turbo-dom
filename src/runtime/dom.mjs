@@ -98,8 +98,12 @@ export class Node extends EventTarget {
   }
 
   get childNodes() {
+    // the NodeList reads __children() live, so one cached object per node is
+    // always correct — avoids re-allocating a Proxy on every .childNodes access
+    // (React/RTL hit this constantly).
+    if (this.__childNodesList) return this.__childNodesList;
     const self = this;
-    return liveNodeList(() => self.__children());
+    return (this.__childNodesList = liveNodeList(() => self.__children()));
   }
   get firstChild() { const k = this.__children(); return k[0] ?? null; }
   get lastChild() { const k = this.__children(); return k[k.length - 1] ?? null; }
@@ -523,8 +527,9 @@ export class Element extends Node {
 
   // ---- element-only traversal (live) ----
   get children() {
+    if (this.__childrenList) return this.__childrenList;
     const self = this;
-    return liveHTMLCollection(() => self.__children().filter((n) => n.nodeType === ELEMENT_NODE));
+    return (this.__childrenList = liveHTMLCollection(() => self.__children().filter((n) => n.nodeType === ELEMENT_NODE)));
   }
   get childElementCount() { return this.__children().filter((n) => n.nodeType === ELEMENT_NODE).length; }
   get firstElementChild() { return this.__children().find((n) => n.nodeType === ELEMENT_NODE) ?? null; }
@@ -750,7 +755,7 @@ export class DocumentFragment extends Node {
   get nodeName() { return '#document-fragment'; }
   querySelector(sel) { return cachedQS(this, sel); }
   querySelectorAll(sel) { return cachedQSA(this, sel); }
-  get children() { const self = this; return liveHTMLCollection(() => self.__children().filter((n) => n.nodeType === ELEMENT_NODE)); }
+  get children() { if (this.__childrenList) return this.__childrenList; const self = this; return (this.__childrenList = liveHTMLCollection(() => self.__children().filter((n) => n.nodeType === ELEMENT_NODE))); }
   append(...nodes) { for (const n of nodes) this.appendChild(toNode(this.ownerDocument, n)); }
   cloneNode(deep = false) { const f = new DocumentFragment(this.ownerDocument); if (deep) for (const c of this.__children()) f.appendChild(c.cloneNode(true)); return f; }
 }
