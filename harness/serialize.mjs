@@ -1,4 +1,4 @@
-// Serialize a fast-dom parse tree into the html5lib-tests tree-construction
+// Serialize a gr0gdom parse tree into the html5lib-tests tree-construction
 // dump format, so output can be string-compared against the fixtures' #document.
 //
 // Format reference (html5lib-tests tree-construction/README.md):

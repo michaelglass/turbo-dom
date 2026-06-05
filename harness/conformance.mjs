@@ -18,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const fixturesDir = join(here, '..', 'vendor', 'html5lib-tests');
 
 // Default adapter: our native parser + html5lib serializer.
-export function fastDomAdapter(t) {
+export function gr0gdomAdapter(t) {
   const tree = t.fragmentContext != null ? parseFragment(t.data, t.fragmentContext) : parse(t.data);
   return serializeTree(tree);
 }
@@ -40,7 +40,7 @@ function runOne(t, adapter) {
 }
 
 // Run the gate. Returns aggregate stats + per-file breakdown + sample failures.
-export function runConformance({ onlyFile = null, maxShow = 8, adapter = fastDomAdapter } = {}) {
+export function runConformance({ onlyFile = null, maxShow = 8, adapter = gr0gdomAdapter } = {}) {
   const files = (onlyFile ? [onlyFile] : readdirSync(fixturesDir).filter((f) => f.endsWith('.dat'))).sort();
   let totalPass = 0, totalFail = 0, totalSkip = 0, totalErr = 0;
   const perFile = [];
@@ -79,7 +79,7 @@ const rate = evaluated ? ((totalPass / evaluated) * 100).toFixed(2) : '0.00';
 
 // per-file table, worst first
 perFile.sort((a, b) => (a.fail + a.err) - (b.fail + b.err) || a.file.localeCompare(b.file));
-console.log('\nhtml5lib-tests tree-construction — fast-dom parser\n');
+console.log('\nhtml5lib-tests tree-construction — gr0gdom parser\n');
 console.log('file'.padEnd(38), 'pass'.padStart(5), 'fail'.padStart(5), 'err'.padStart(4), 'skip'.padStart(5));
 console.log('-'.repeat(64));
 for (const r of perFile) {

@@ -1,8 +1,8 @@
 // Phase 1 + Phase 3 wall-clock benchmarks:
 //  (a) "real suite" — many small RTL-style tests, each constructing a fresh
-//      per-file environment: fast-dom vs jsdom vs happy-dom (the per-file cost
+//      per-file environment: gr0gdom vs jsdom vs happy-dom (the per-file cost
 //      the design targets).
-//  (b) lazy-vs-eager NODES within fast-dom (does laziness earn its keep?).
+//  (b) lazy-vs-eager NODES within gr0gdom (does laziness earn its keep?).
 //  (c) eager-vs-lazy WINDOW microbench (isolated global-construction cost).
 
 import { createRequire } from 'node:module';
@@ -40,7 +40,7 @@ function testBody(doc) {
 }
 
 const makers = {
-  'fast-dom': () => createEnvironment(COMPONENT).document,
+  'gr0gdom': () => createEnvironment(COMPONENT).document,
   jsdom: () => new JSDOM(COMPONENT).window.document,
   'happy-dom': () => { const w = new Window(); return new w.DOMParser().parseFromString(COMPONENT, 'text/html'); },
 };
@@ -57,21 +57,21 @@ function suiteWallClock(make, files = 200) {
 
 console.log('\n(a) Real-suite wall-clock — 200 test files, fresh env each (lower better)\n');
 const FILES = 200;
-const base = suiteWallClock(makers['fast-dom'], FILES);
-for (const name of ['fast-dom', 'jsdom', 'happy-dom']) {
+const base = suiteWallClock(makers['gr0gdom'], FILES);
+for (const name of ['gr0gdom', 'jsdom', 'happy-dom']) {
   const r = suiteWallClock(makers[name], FILES);
   const rel = r.ms / base.ms;
   console.log(
     name.padEnd(11),
     (r.ms.toFixed(0) + ' ms').padStart(10),
     (r.perFile.toFixed(3) + ' ms/file').padStart(16),
-    name === 'fast-dom' ? '' : `${rel.toFixed(1)}x slower`
+    name === 'gr0gdom' ? '' : `${rel.toFixed(1)}x slower`
   );
 }
-console.log(`\nfast-dom per-file setup+test: ${base.perFile.toFixed(3)} ms.`);
+console.log(`\ngr0gdom per-file setup+test: ${base.perFile.toFixed(3)} ms.`);
 
-// (b) lazy vs eager NODES inside fast-dom
-console.log('\n(b) lazy vs eager nodes (fast-dom, 200 files)\n');
+// (b) lazy vs eager NODES inside gr0gdom
+console.log('\n(b) lazy vs eager nodes (gr0gdom, 200 files)\n');
 function suiteEager(files = 200) {
   for (let i = 0; i < 10; i++) { const d = createEnvironment(COMPONENT).document; Array.from(d.getElementsByTagName('*')).forEach((e) => void e.textContent); testBody(d); }
   const start = process.hrtime.bigint();
@@ -83,7 +83,7 @@ function suiteEager(files = 200) {
   }
   return Number(process.hrtime.bigint() - start) / 1e6;
 }
-const lazyMs = suiteWallClock(makers['fast-dom'], 200).ms;
+const lazyMs = suiteWallClock(makers['gr0gdom'], 200).ms;
 const eagerMs = suiteEager(200);
 console.log('lazy nodes ', lazyMs.toFixed(0).padStart(6), 'ms');
 console.log('eager nodes', eagerMs.toFixed(0).padStart(6), 'ms', `(${(eagerMs / lazyMs).toFixed(2)}x)`);

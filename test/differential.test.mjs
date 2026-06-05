@@ -2,11 +2,11 @@
 // Generate deterministic random DOM op sequences, apply identically to all three
 // engines, and compare canonical trees.
 //
-// jsdom is the strict oracle (spec-correct): fast-dom MUST match it exactly.
+// jsdom is the strict oracle (spec-correct): gr0gdom MUST match it exactly.
 // happy-dom is also compared — but where happy-dom disagrees with jsdom, that is
-// happy-dom's bug, and fast-dom is allowed to side with jsdom. The test fails only
-// if fast-dom diverges from jsdom, or if fast-dom diverges from happy-dom on an op
-// where happy-dom and jsdom actually agree (i.e. a real fast-dom bug).
+// happy-dom's bug, and gr0gdom is allowed to side with jsdom. The test fails only
+// if gr0gdom diverges from jsdom, or if gr0gdom diverges from happy-dom on an op
+// where happy-dom and jsdom actually agree (i.e. a real gr0gdom bug).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -83,16 +83,16 @@ for (const seed of [1, 7, 42, 1337, 90210]) {
 
     const cf = canon(fast.body), cj = canon(jdom.body), ch = canon(hdom.body);
 
-    // hard oracle: fast-dom must match jsdom exactly
-    assert.equal(cf, cj, `fast-dom diverged from jsdom @ seed ${seed}`);
+    // hard oracle: gr0gdom must match jsdom exactly
+    assert.equal(cf, cj, `gr0gdom diverged from jsdom @ seed ${seed}`);
 
-    // happy-dom: only a fast-dom bug if happy-dom AGREES with jsdom yet fast-dom doesn't.
+    // happy-dom: only a gr0gdom bug if happy-dom AGREES with jsdom yet gr0gdom doesn't.
     // (cf===cj already holds here, so this just records when happy-dom itself diverged.)
     if (ch !== cj) {
-      // happy-dom is the diverger; fast-dom correctly sided with jsdom. Informational.
+      // happy-dom is the diverger; gr0gdom correctly sided with jsdom. Informational.
       // (no assertion — this is happy-dom's known incorrectness)
     } else {
-      assert.equal(cf, ch, `fast-dom diverged from happy-dom where happy-dom matched jsdom @ seed ${seed}`);
+      assert.equal(cf, ch, `gr0gdom diverged from happy-dom where happy-dom matched jsdom @ seed ${seed}`);
     }
   });
 }
@@ -111,9 +111,9 @@ test('querySelectorAll parity vs jsdom AND happy-dom', () => {
     const f = fast.querySelectorAll(sel).length;
     const j = jdom.querySelectorAll(sel).length;
     const h = hdom.querySelectorAll(sel).length;
-    assert.equal(f, j, `selector "${sel}": fast-dom ${f} != jsdom ${j}`);
+    assert.equal(f, j, `selector "${sel}": gr0gdom ${f} != jsdom ${j}`);
     // happy-dom must also agree on these simple selectors
-    assert.equal(f, h, `selector "${sel}": fast-dom ${f} != happy-dom ${h}`);
+    assert.equal(f, h, `selector "${sel}": gr0gdom ${f} != happy-dom ${h}`);
   }
 });
 

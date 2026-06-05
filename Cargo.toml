@@ -1,8 +1,8 @@
 [package]
-name = "fast-dom-parser"
+name = "gr0gdom-parser"
 version = "0.0.1"
 edition = "2021"
-description = "html5ever-backed native parser for fast-dom (Layer 1)"
+description = "html5ever-backed native parser for gr0gdom (Layer 1)"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

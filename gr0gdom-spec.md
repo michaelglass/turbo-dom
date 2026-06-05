@@ -1,4 +1,4 @@
-# Fast DOM Test Runtime — Technical Specification
+# gr0gdom Test Runtime — Technical Specification
 
 A lazy, copy-on-write, native-parser-backed DOM implementation for test runners.
 Goal: faster than jsdom **and** more compatible than happy-dom — by economizing on

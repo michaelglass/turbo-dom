@@ -1,9 +1,9 @@
-// Conformance delta: run the SAME html5lib-tests suite against fast-dom,
+// Conformance delta: run the SAME html5lib-tests suite against gr0gdom,
 // happy-dom, and jsdom; report pass rates and the head-to-head divergence.
 //
 //   node harness/delta.mjs
 
-import { runConformance, fastDomAdapter } from './conformance.mjs';
+import { runConformance, gr0gdomAdapter } from './conformance.mjs';
 import { makeHappyDomAdapter, makeJsdomAdapter } from './adapters.mjs';
 
 function safe(name, make) {
@@ -16,7 +16,7 @@ function safe(name, make) {
 }
 
 const engines = [
-  { name: 'fast-dom', adapter: fastDomAdapter },
+  { name: 'gr0gdom', adapter: gr0gdomAdapter },
   { name: 'happy-dom', adapter: safe('happy-dom', makeHappyDomAdapter) },
   { name: 'jsdom', adapter: safe('jsdom', makeJsdomAdapter) },
 ].filter((e) => e.adapter);
@@ -40,11 +40,11 @@ for (const r of results) {
   );
 }
 
-const ours = results.find((r) => r.name === 'fast-dom');
-console.log('\nDelta vs fast-dom (' + ours.rate.toFixed(2) + '%):');
+const ours = results.find((r) => r.name === 'gr0gdom');
+console.log('\nDelta vs gr0gdom (' + ours.rate.toFixed(2) + '%):');
 for (const r of results) {
-  if (r.name === 'fast-dom') continue;
+  if (r.name === 'gr0gdom') continue;
   const d = (ours.rate - r.rate).toFixed(2);
   const sign = d >= 0 ? '+' : '';
-  console.log(`  fast-dom is ${sign}${d} pts vs ${r.name}  (${ours.totalPass} vs ${r.totalPass} passing, ${r.totalErr} ${r.name} crashes)`);
+  console.log(`  gr0gdom is ${sign}${d} pts vs ${r.name}  (${ours.totalPass} vs ${r.totalPass} passing, ${r.totalErr} ${r.name} crashes)`);
 }

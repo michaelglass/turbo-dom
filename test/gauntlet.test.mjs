@@ -1,5 +1,5 @@
 // Phase 3, test strategy #2: the real-library gauntlet.
-// Run @testing-library/dom UNMODIFIED against the fast-dom environment. This is
+// Run @testing-library/dom UNMODIFIED against the gr0gdom environment. This is
 // the test happy-dom fails on real libraries — passing it is the entire point.
 
 import { test } from 'node:test';
@@ -18,7 +18,7 @@ function envBody(html) {
   return { env, body: env.document.body };
 }
 
-test('RTL getByText / queryByText against fast-dom', () => {
+test('RTL getByText / queryByText against gr0gdom', () => {
   const { body } = envBody(`<div><p>Hello world</p><span>other</span></div>`);
   assert.ok(getByText(body, 'Hello world'));
   assert.equal(queryByText(body, 'nonexistent'), null);
@@ -78,7 +78,7 @@ test('RTL within() scopes queries to a subtree', () => {
   assert.equal(within(a).queryByText('B'), null);
 });
 
-test('RTL event bubbling through fast-dom tree (delegation)', () => {
+test('RTL event bubbling through gr0gdom tree (delegation)', () => {
   const { body } = envBody(`<ul><li><button>x</button></li></ul>`);
   const ul = body.querySelector('ul');
   let delegated = null;

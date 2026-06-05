@@ -1,7 +1,7 @@
-# fast-dom-parser
+# gr0gdom-parser
 
 Native HTML parser for a lazy, copy-on-write DOM test runtime — **Layer 1** of the
-[fast-dom design](./fast-dom-spec.md). One Rust core backed by
+[gr0gdom design](./gr0gdom-spec.md). One Rust core backed by
 [`html5ever`](https://github.com/servo/html5ever) (Servo's spec-compliant WHATWG tree
 constructor), exposed through two interchangeable front-ends:
 
@@ -43,20 +43,20 @@ patching the parser, against the "inherit Servo's correctness" thesis.
 
 | engine | pass | fail | crash | rate |
 |---|---:|---:|---:|---:|
-| **fast-dom** | 1778 | 5 | 0 | **99.72%** |
+| **gr0gdom** | 1778 | 5 | 0 | **99.72%** |
 | jsdom | 1730 | 53 | 0 | 97.03% |
 | happy-dom | 666 | 1116 | 1 | **37.35%** |
 
 happy-dom's 1116 failures are concentrated in the **adoption agency algorithm**
 (`<a><p></a></p>` reparenting) and **table foster-parenting** — the exact "messy input"
-bug class the design autopsy predicted from a hand-rolled parser. fast-dom inherits
+bug class the design autopsy predicted from a hand-rolled parser. gr0gdom inherits
 Servo's tree constructor and sidesteps all of it.
 
 Run it:
 
 ```bash
 npm run conformance              # our summary + per-file table
-npm run conformance:delta        # fast-dom vs happy-dom vs jsdom
+npm run conformance:delta        # gr0gdom vs happy-dom vs jsdom
 node harness/conformance.mjs --verbose          # show failing diffs
 node harness/conformance.mjs --file tests1.dat  # one fixture
 ```
@@ -87,7 +87,7 @@ marshaling; `parseRaw()` is parse-only (the floor):
 ## API
 
 ```js
-const { parse, parseBuffer, parseFragment } = require('fast-dom-parser');
+const { parse, parseBuffer, parseFragment } = require('gr0gdom-parser');
 
 parseBuffer('<div id=a><span>hi</span></div>');  // → SoA typed arrays (runtime fast path)
 parse('<div id=a><span>hi</span></div>');         // → nested tree { nodeType, name, children … }
@@ -137,22 +137,22 @@ Numbers from one run on darwin-arm64 (Node 24). Reproduce with `npm run bench:al
 
 | engine | ops/sec | vs jsdom |
 |---|---:|---:|
-| fast-dom | 6,808 | **25.6×** |
+| gr0gdom | 6,808 | **25.6×** |
 | happy-dom | 526 | 2.0× |
 | jsdom | 266 | 1.0× |
 
-Lazy payoff inside fast-dom: touch-1-node **6,928** vs touch-all+globals **934** → the light
+Lazy payoff inside gr0gdom: touch-1-node **6,928** vs touch-all+globals **934** → the light
 path is **7.4×** the full-inflation path (laziness pays when a test touches little).
 
 **Real test-suite wall-clock** — 200 files, fresh env each (`bench/suite.mjs`, lower better):
 
 | engine | total | per file | |
 |---|---:|---:|---|
-| fast-dom | 25 ms | **0.125 ms** | — |
+| gr0gdom | 25 ms | **0.125 ms** | — |
 | happy-dom | 289 ms | 1.447 ms | 9.1× slower |
 | jsdom | 671 ms | 3.356 ms | **21.0× slower** |
 
-- lazy vs eager **nodes** (fast-dom): 33 ms vs 38 ms (1.15× — workload touches most nodes here)
+- lazy vs eager **nodes** (gr0gdom): 33 ms vs 38 ms (1.15× — workload touches most nodes here)
 - lazy vs eager **window** (construction only): 12,509 vs 10,173 constructs/sec (1.23×)
 
 **WASM vs native** parseBuffer (`bench/wasm.mjs`, ops/sec):
@@ -184,9 +184,9 @@ Worst case 47% of native — fallback acceptable, same SoA contract, single boun
 | **3** | invariant fallback audit | `test/liveness.test.mjs` | **0** divergences (lazy ≡ eager; no fallback needed) |
 | **3** | lazy-vs-eager NODES wall-clock | `bench/suite.mjs` (b) | workload-dependent: 1.05× here, 2.6× when tests touch little |
 
-- **Differential (oracle):** deterministic random op sequences applied to fast-dom, jsdom,
-  and happy-dom; fast-dom must match jsdom exactly (it does). happy-dom compared too —
-  where it disagrees with jsdom it's happy-dom's bug, and fast-dom sides with jsdom.
+- **Differential (oracle):** deterministic random op sequences applied to gr0gdom, jsdom,
+  and happy-dom; gr0gdom must match jsdom exactly (it does). happy-dom compared too —
+  where it disagrees with jsdom it's happy-dom's bug, and gr0gdom sides with jsdom.
 - **Gauntlet:** `@testing-library/dom` and `@testing-library/user-event` (click, type,
   keyboard, checkbox toggle via default actions) run **unmodified** — the test happy-dom fails.
 
@@ -243,3 +243,7 @@ Next (optimization, not correctness): the **SoA flat buffer** the benches justif
 spends 2.2–8× longer than `parseRaw()` building the JS tree, and lazy nodes already avoid
 inflating untouched subtrees; moving the source-of-truth to a typed-array SoA would shrink
 both the marshaling cost and per-file reset further. Plus live wasm throughput numbers.
+
+## License
+
+[MIT](./LICENSE) — do anything, just keep the notice. Free for the internet.
