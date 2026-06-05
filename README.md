@@ -15,8 +15,10 @@ npm install -D @miaskiewicz/turbo-dom
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
   Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
 - ⚡ **Faster than both** — ~120× jsdom / ~40× happy-dom on a realistic suite (parse-memoized repeated shells), 18–37× faster HTML parsing, and it beats happy-dom on repeated queries while staying 99.7% spec-correct.
-- 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros and
-  `getComputedStyle` reflects only what you set. Geometry tests belong in a real browser.
+- 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros.
+  `getComputedStyle` runs a **partial cascade**: it resolves real injected `<style>` rules
+  (emotion/MUI `.css-HASH{…}`) + inline styles with proper specificity/source order — but only
+  ever returns values a real rule set, never invented layout. Geometry tests belong in a real browser.
 
 ## Quick start
 
@@ -90,7 +92,8 @@ parseFragment('<rect/>', 'svg path');              // fragment in a context elem
 | html5lib-tests conformance | **99.72%** | 37.35% | 97.03% |
 | @testing-library/dom + user-event | ✅ | ✅ | ✅ |
 | React + Radix / Headless UI / downshift | ✅ | partial | ✅ |
-| Real layout / `getComputedStyle` cascade | ❌ (honest stub) | partial | partial |
+| Real layout | ❌ (honest stub) | partial | partial |
+| `getComputedStyle` cascade | partial (real `<style>` + inline) | partial | partial |
 
 turbo-dom inherits Servo's tree constructor, so the "messy input" cases hand-rolled parsers
 get wrong — adoption-agency reparenting (`<a><p></a></p>`), table foster-parenting, optional
@@ -151,9 +154,15 @@ JS (chatty, fine-grained) but pays only for what a test touches. Full design not
 ## Limitations (by design)
 
 - **No layout.** `getBoundingClientRect()` returns zeros; `getClientRects()` is empty.
-- **`getComputedStyle` is inline-only** — it reflects the `style` attribute and explicitly
-  set properties, never an invented cascade. Style/geometry assertions belong in a real
-  browser (Playwright/WebDriver).
+- **`getComputedStyle` is a partial cascade** — it resolves REAL injected `<style>` rules
+  (emotion/MUI `.css-HASH{…}`) plus inline `style`, applying specificity and source order
+  (inline wins). It expands common shorthands to longhands (`margin`/`padding`/`border`/single-token
+  `background`), serializes bare `0` as `0px` for length props, and normalizes `font-family`
+  comma spacing to match browser output. Out of scope (returns `''`): `@media`/`@supports`/
+  `@keyframes`, `:hover`/state pseudo-classes, pseudo-elements, full inheritance, CSS custom
+  properties, and length-unit conversion (`em`/`rem`→`px`). Only ever returns values from a
+  matched rule or inline declaration — never an invented one. Style/geometry assertions belong
+  in a real browser (Playwright/WebDriver).
 - Canvas, `<select>` rendering, and similar visual APIs are honest no-op stubs.
 
 ## Development
