@@ -98,9 +98,10 @@ export class Node extends EventTarget {
     if (this.__idx >= 0 && doc && doc.__buf) {
       const buf = doc.__buf;
       for (let c = buf.firstChild(this.__idx); c !== -1; c = buf.nextSib(c)) {
+        const nt = buf.nodeType(c); // read once, pass to __nodeAt (was re-read in its switch)
         // template content fragment is not a child — it's `.content`
-        if (buf.nodeType(c) === DOCUMENT_FRAGMENT_NODE && buf.tagName(c) === 'content') continue;
-        const child = doc.__nodeAt(c);
+        if (nt === DOCUMENT_FRAGMENT_NODE && buf.tagName(c) === 'content') continue;
+        const child = doc.__nodeAt(c, nt);
         child.parentNode = this;
         kids.push(child);
       }
@@ -1402,13 +1403,16 @@ export class Document extends Node {
   }
 
   // nodeAt: one handle per buffer index, memoized → preserves === identity.
-  __nodeAt(idx) {
+  // `nt` (nodeType) may be passed by callers that already read it (__children),
+  // avoiding a second buffer read; other callers leave it undefined.
+  __nodeAt(idx, nt) {
     if (idx < 0) return null;
     const cached = this.__cache[idx];
     if (cached !== undefined) return cached;
     const buf = this.__buf;
     let node;
-    switch (buf.nodeType(idx)) {
+    if (nt === undefined) nt = buf.nodeType(idx);
+    switch (nt) {
       case ELEMENT_NODE: {
         const tag = buf.tagName(idx); // read once (was read twice — ctor + template check)
         node = new Element(this, tag, buf.ns(idx));
