@@ -363,6 +363,16 @@ export class Element extends Node {
     this.__attrIdx = -1;              // buffer index for lazy attr inflation
     this.content = null;              // <template> content fragment
     this.shadowRoot = null;           // open shadow root, if attached
+    // Predeclare the hot lazy fields (left at their "absent" sentinel) so every
+    // Element shares ONE hidden class. Without this, fields added on demand in
+    // varying order across elements make the shared query/match/style/event code
+    // megamorphic on property loads. Costs a few in-object slots, buys monomorphism.
+    this.__childNodesList = undefined; // childNodes NodeList (memoized live view)
+    this.__childrenList = undefined;   // children HTMLCollection (memoized live view)
+    this.__qaCache = undefined;        // querySelectorAll cache (selector → {v,r})
+    this.__qsCache = undefined;        // querySelector cache
+    this.__computedStyle = undefined;  // getComputedStyle snapshot (version-keyed)
+    this.__shadow = undefined;         // attached shadow root (open or closed)
   }
 
   get nodeType() { return ELEMENT_NODE; }
