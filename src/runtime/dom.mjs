@@ -644,8 +644,20 @@ export class Element extends Node {
   get childElementCount() { return this.__elementChildren().length; }
   get firstElementChild() { return this.__elementChildren()[0] ?? null; }
   get lastElementChild() { const e = this.__elementChildren(); return e[e.length - 1] ?? null; }
-  get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== ELEMENT_NODE) n = n.nextSibling; return n || null; }
-  get previousElementSibling() { let n = this.previousSibling; while (n && n.nodeType !== ELEMENT_NODE) n = n.previousSibling; return n || null; }
+  // one indexOf + scan, not nextSibling-per-step (each of which re-runs indexOf → O(n²)
+  // when text nodes sit between elements). Reads __children() live — no cache.
+  get nextElementSibling() {
+    const p = this.parentNode; if (!p) return null;
+    const k = p.__children(); let i = k.indexOf(this); if (i < 0) return null;
+    for (i++; i < k.length; i++) if (k[i].nodeType === ELEMENT_NODE) return k[i];
+    return null;
+  }
+  get previousElementSibling() {
+    const p = this.parentNode; if (!p) return null;
+    const k = p.__children(); let i = k.indexOf(this);
+    for (i--; i >= 0; i--) if (k[i].nodeType === ELEMENT_NODE) return k[i];
+    return null;
+  }
 
   // ---- modern insertion ----
   append(...nodes) { for (const n of nodes) this.appendChild(toNode(this.ownerDocument, n)); }
