@@ -194,6 +194,48 @@ test('window proxy: has + getOwnPropertyDescriptor + assignment shadowing', () =
   assert.equal(window.globalThis, window);
 });
 
+test('window honest-stub surface: geometry factories + chrome no-ops are callable', () => {
+  const { window } = fresh();
+  // SHARED_LAZY geometry factories (honest constants) — materialize each
+  for (const k of ['devicePixelRatio', 'innerWidth', 'innerHeight', 'outerWidth', 'outerHeight',
+    'pageXOffset', 'pageYOffset', 'scrollX', 'scrollY', 'screenX', 'screenY', 'screenLeft', 'screenTop']) {
+    assert.equal(typeof window[k], 'number');
+  }
+  // visualViewport + screen.orientation no-op listeners
+  const vv = window.visualViewport;
+  assert.equal(vv.width, 1024);
+  vv.addEventListener('resize', () => {}); vv.removeEventListener('resize', () => {});
+  const orient = window.screen.orientation;
+  orient.addEventListener('change', () => {}); orient.removeEventListener('change', () => {});
+  // navigator.permissions query result listeners
+  // ResizeObserver factory + instance no-ops
+  const ro = new window.ResizeObserver(() => {});
+  ro.observe(window.document.body); ro.unobserve(window.document.body); ro.disconnect();
+  // chrome no-ops — must not throw
+  window.scroll(); window.scrollBy(); window.scrollTo(0, 0);
+  window.focus(); window.blur(); window.stop(); window.print(); window.close();
+  assert.equal(window.open(), null);
+  window.moveTo(0, 0); window.moveBy(1, 1); window.resizeTo(1, 1); window.resizeBy(1, 1);
+  window.alert('x'); assert.equal(window.confirm('x'), false); assert.equal(window.prompt('x'), null);
+  window.reportError(new Error('x'));
+  // Worker stub
+  const w = new window.Worker('u'); w.postMessage('m'); w.addEventListener('message', () => {});
+  w.removeEventListener('message', () => {}); w.terminate();
+});
+
+test('tag-specific HTML*Element constructors throw (illegal constructor)', () => {
+  const { window } = fresh();
+  assert.throws(() => new window.HTMLDivElement(), /Illegal constructor/);
+});
+
+test('navigator.permissions query result has no-op listeners', async () => {
+  const { window } = fresh();
+  const status = await window.navigator.permissions.query({ name: 'clipboard-read' });
+  status.addEventListener('change', () => {});
+  status.removeEventListener('change', () => {});
+  assert.equal(status.state, 'prompt');
+});
+
 test('FormData keeps Blob identity + renames on append with filename', () => {
   const { window } = fresh();
   const fd = new window.FormData();
