@@ -326,6 +326,25 @@ test('dataset getOwnPropertyDescriptor is undefined for a missing attr', () => {
   assert.equal(Object.getOwnPropertyDescriptor(el.dataset, 'here').value, 'v');
 });
 
+test('lazy __mo: first observe initializes, second registers + re-observe replaces', async () => {
+  const { window, document } = fresh();
+  document.body.innerHTML = '<div id="r"></div>';
+  const r = document.getElementById('r');
+  const a = [], b = [];
+  const mo1 = new window.MutationObserver((recs) => a.push(...recs));
+  const mo2 = new window.MutationObserver((recs) => b.push(...recs));
+  mo1.observe(r, { attributes: true });          // first → __mo initialized (null → [])
+  mo2.observe(r, { attributes: true });          // second → __mo non-null branch (filter)
+  mo1.observe(r, { childList: true });           // re-observe same (obs,target) → replaces
+  r.setAttribute('x', '1');                      // mo1 now childList-only → no attr record
+  r.appendChild(document.createElement('span')); // childList → mo1 sees it
+  await Promise.resolve();
+  mo1.disconnect(); mo2.disconnect();            // __moUnregister (non-null branch)
+  assert.ok(a.some((rec) => rec.type === 'childList'));
+  assert.ok(a.every((rec) => rec.type !== 'attributes')); // re-observe dropped attributes
+  assert.ok(b.some((rec) => rec.type === 'attributes'));   // mo2 still attributes
+});
+
 test('MutationObserver subtree ignores a mutation outside the observed root', async () => {
   const { window, document } = fresh();
   document.body.innerHTML = '<div id="r"><span id="s"></span></div><div id="other"></div>';

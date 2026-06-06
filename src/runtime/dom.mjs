@@ -1362,7 +1362,7 @@ export class Document extends Node {
     this.__cache = [];            // idx -> handle (identity memoization / nodeAt)
     this.__active = null;         // activeElement
     this.defaultView = null;      // set by environment (window)
-    this.__mo = [];               // registered MutationObservers
+    this.__mo = null;             // registered MutationObservers (lazy — most files never observe())
     this.__moPending = null;      // observers with queued records awaiting microtask
   }
   get nodeType() { return DOCUMENT_NODE; }
@@ -1371,10 +1371,11 @@ export class Document extends Node {
   // ---- MutationObserver registry ----
   __moRegister(obs, target, options) {
     // replace existing registration for (obs,target) per spec
-    this.__mo = this.__mo.filter((r) => !(r.obs === obs && r.target === target));
+    if (!this.__mo) this.__mo = [];
+    else this.__mo = this.__mo.filter((r) => !(r.obs === obs && r.target === target));
     this.__mo.push({ obs, target, options });
   }
-  __moUnregister(obs) { this.__mo = this.__mo.filter((r) => r.obs !== obs); }
+  __moUnregister(obs) { if (this.__mo) this.__mo = this.__mo.filter((r) => r.obs !== obs); }
   __scheduleMO(obs) {
     if (!this.__moPending) this.__moPending = new Set();
     if (this.__moPending.has(obs)) return;
