@@ -5,7 +5,9 @@ const NS_SHORT = ['', 'svg', 'math'];
 
 // Inflate the packed byte blob into named typed-array views (zero-copy).
 // Mirrors the column order in lib.rs JsSoa::from. One ArrayBuffer, ~13 views.
-function unpack(soa) {
+// Exported so the parse cache can unpack ONCE per HTML (the views are read-only
+// over the shared immutable buffer) instead of re-unpacking per Document.
+export function unpack(soa) {
   const u8 = soa.packed, ab = u8.buffer, base = u8.byteOffset, n = soa.n, m = soa.m;
   let off = base;
   const i32 = () => { const a = new Int32Array(ab, off, n); off += n * 4; return a; };

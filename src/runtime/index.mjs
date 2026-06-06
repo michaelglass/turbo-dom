@@ -9,6 +9,7 @@
 import { createRequire } from 'node:module';
 import { Document } from './dom.mjs';
 import { createWindow } from './window.mjs';
+import { unpack } from './buffer.mjs';
 
 const require = createRequire(import.meta.url);
 const native = require('../../index.js');
@@ -33,7 +34,11 @@ function parseBufferCached(html) {
     if (html !== __parseCacheMRU) { __parseCache.delete(html); __parseCache.set(html, hit); __parseCacheMRU = html; }
     return hit;
   }
-  const soa = native.parseBuffer(html);
+  let soa = native.parseBuffer(html);
+  // Unpack the packed blob into typed-array views ONCE here, not per Document in
+  // every Buffer ctor — the views are read-only over the shared immutable buffer,
+  // so all Documents backed by this cached soa reuse them (no re-unpack per file).
+  if (soa.packed) soa = unpack(soa);
   // Evict the single oldest entry, not the whole cache — a suite with >64 distinct
   // shells should keep its hot fixtures warm, not thrash every one cold on overflow.
   if (__parseCache.size >= __PARSE_CACHE_MAX) __parseCache.delete(__parseCache.keys().next().value);
