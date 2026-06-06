@@ -234,3 +234,4 @@ Roughly ordered by expected value. Each must go through the full protocol.
 | v0.1.53 (re-run 2) | 46.6s ✓ | **74.9s** ✓<75 | KPI point — BOTH targets met (quiet) |
 - KPI DATA POINT @v0.1.53 (no code change): uidc 46.6s ✓, payroll 74.9s ✓ — BOTH under target on quiet machine. payroll confirmed dips <75 on quiet runs (74.9-75.7); 80.8 was a loaded run. KPI met when machine quiet; load-variance is vitest-import-bound, not turbo-dom.
 - AUDIT (no ship) — Text.splitText/wholeText: cold (text-manipulation, ~never in React/RTL render-assert flow); not hot-path. No further low-risk turbo-dom wins identified. KPI both met (uidc 46.6 / payroll 74.9 quiet). Idle plateau confirmatory.
+| v0.1.53 (re-run 3) | 46.1s ✓ | **73.5s** ✓<75 best | KPI point — both met, payroll best |
