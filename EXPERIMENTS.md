@@ -218,3 +218,5 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - AUDIT (no ship) — collectByTag clean (nodeType inlined, localName field, single read/node). collectByClass re-reads class per class ONLY for multi-class selectors, but runs in the cached path (Document __byClass / Element version-cache v0.1.50) → once per version, not per-access. Cache-gated → no win (matcher-opt lesson). Walks confirmed optimal.
 | v0.1.52 | 48.5s ✓<50 | 88.5s | deep cloneNode direct __kids build (~2×) |
 - v0.1.52 — deep cloneNode builds __kids directly (skips per-child appendChild notifyMutation+reparent on detached clone) — SHIPPED (~2× on ~120-node clone; both suites green). Detached-tree-construction pattern: skip mutation bookkeeping when nothing observes it.
+| v0.1.53 | 48.3s ✓<50 | **75.7s** (quiet, ~target) | DocumentFragment.cloneNode direct build (+8%) |
+- v0.1.53 — DocumentFragment.cloneNode direct __kids build (completes v0.1.52 detached-clone pattern) — SHIPPED (+8%; uidc 48.3s, payroll 75.7s LOWEST/~at 75s KPI target on quiet machine; both green).
