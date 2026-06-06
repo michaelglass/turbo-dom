@@ -106,12 +106,6 @@ export const TouchEvent = makeTyped('TouchEvent');
 export const DragEvent = makeTyped('DragEvent');
 export const ProgressEvent = makeTyped('ProgressEvent');
 
-function normalizeOptions(options) {
-  if (typeof options === 'boolean') return { capture: options, once: false, passive: false };
-  options = options || {};
-  return { capture: !!options.capture, once: !!options.once, passive: !!options.passive };
-}
-
 // ---- shadow DOM event support ----
 // Duck-typed (ShadowRoot sets `__isShadowRoot`/`host`) to avoid a dom.mjs import
 // cycle. NONE of this runs unless the document has a shadow root attached — the
@@ -149,22 +143,28 @@ export class EventTarget {
 
   addEventListener(type, callback, options) {
     if (callback == null) return;
-    const o = normalizeOptions(options);
+    // Inlined option parsing — avoids a throwaway normalizeOptions object AND a
+    // per-call .some() closure on this hot path (React attaches many listeners
+    // at mount). Boolean options → capture; object → capture/once/passive.
+    let capture = false, once = false, passive = false;
+    if (typeof options === 'boolean') capture = options;
+    else if (options) { capture = !!options.capture; once = !!options.once; passive = !!options.passive; }
     if (!this.__listeners) this.__listeners = new Map();
     let list = this.__listeners.get(type);
     if (!list) { list = []; this.__listeners.set(type, list); }
     // dedupe on (callback, capture) per spec
-    if (list.some((l) => l.callback === callback && l.capture === o.capture)) return;
-    list.push({ callback, capture: o.capture, once: o.once, passive: o.passive });
+    for (let i = 0; i < list.length; i++) if (list[i].callback === callback && list[i].capture === capture) return;
+    list.push({ callback, capture, once, passive });
   }
 
   removeEventListener(type, callback, options) {
     if (!this.__listeners) return;
-    const o = normalizeOptions(options);
+    const capture = typeof options === 'boolean' ? options : !!(options && options.capture);
     const list = this.__listeners.get(type);
     if (!list) return;
-    const i = list.findIndex((l) => l.callback === callback && l.capture === o.capture);
-    if (i !== -1) list.splice(i, 1);
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].callback === callback && list[i].capture === capture) { list.splice(i, 1); return; }
+    }
   }
 
   // Build the event path: target up through ancestors to the root.
