@@ -627,22 +627,23 @@ export class Element extends Node {
   }
 
   // ---- element-only traversal (live) ----
+  // version-cache the element-filtered child array (like cachedQSA): re-filter only
+  // when the DOM version changes, not on every children/childElementCount/first/last
+  // access. Live — every mutation bumps Document.__version, invalidating the cache.
+  __elementChildren() {
+    const d = this.ownerDocument, v = d ? (d.__version || 0) : 0;
+    if (this.__childrenArr !== undefined && this.__childrenArrV === v) return this.__childrenArr;
+    this.__childrenArrV = v;
+    return (this.__childrenArr = this.__children().filter((n) => n.nodeType === ELEMENT_NODE));
+  }
   get children() {
     if (this.__childrenList) return this.__childrenList;
     const self = this;
-    // version-cache the element-filtered array (like cachedQSA): re-filter only when
-    // the DOM version changes, not on every children[i]/length access. Live —
-    // every mutation bumps Document.__version, invalidating the cache.
-    return (this.__childrenList = liveHTMLCollection(() => {
-      const d = self.ownerDocument, v = d ? (d.__version || 0) : 0;
-      if (self.__childrenArr !== undefined && self.__childrenArrV === v) return self.__childrenArr;
-      self.__childrenArrV = v;
-      return (self.__childrenArr = self.__children().filter((n) => n.nodeType === ELEMENT_NODE));
-    }));
+    return (this.__childrenList = liveHTMLCollection(() => self.__elementChildren()));
   }
-  get childElementCount() { return this.__children().filter((n) => n.nodeType === ELEMENT_NODE).length; }
-  get firstElementChild() { return this.__children().find((n) => n.nodeType === ELEMENT_NODE) ?? null; }
-  get lastElementChild() { const e = this.__children().filter((n) => n.nodeType === ELEMENT_NODE); return e[e.length - 1] ?? null; }
+  get childElementCount() { return this.__elementChildren().length; }
+  get firstElementChild() { return this.__elementChildren()[0] ?? null; }
+  get lastElementChild() { const e = this.__elementChildren(); return e[e.length - 1] ?? null; }
   get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== ELEMENT_NODE) n = n.nextSibling; return n || null; }
   get previousElementSibling() { let n = this.previousSibling; while (n && n.nodeType !== ELEMENT_NODE) n = n.previousSibling; return n || null; }
 

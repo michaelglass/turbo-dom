@@ -245,6 +245,21 @@ test('single once listener fires exactly once and is removed', () => {
   assert.equal(n, 1);
 });
 
+test('childElementCount/first/last share the version-cache and reflect mutations', () => {
+  const { document } = fresh();
+  document.body.innerHTML = '<ul id="l"><li>a</li><li>b</li></ul>';
+  const ul = document.getElementById('l');
+  assert.equal(ul.childElementCount, 2);
+  assert.equal(ul.firstElementChild.textContent, 'a');
+  assert.equal(ul.lastElementChild.textContent, 'b');
+  ul.appendChild(document.createElement('li'));   // mutation bumps __version → cache invalidates
+  assert.equal(ul.childElementCount, 3);
+  assert.equal(ul.lastElementChild.localName, 'li');
+  ul.removeChild(ul.firstElementChild);
+  assert.equal(ul.childElementCount, 2);
+  assert.equal(ul.firstElementChild.textContent, 'b');
+});
+
 test('composedPath() on a never-dispatched event is [] (lazy _path)', () => {
   const { window } = fresh();
   const e = new window.Event('x');
