@@ -79,6 +79,41 @@ function tagClass(matcher) {
 // the bare names on globalThis (which would make these delegates call themselves).
 const hostSetTimeout = globalThis.setTimeout;
 const hostClearTimeout = globalThis.clearTimeout;
+
+// Env-independent lazy global factories — built ONCE at module load, shared by
+// every window (none capture document/url/windowProxy). Materialization still
+// self-replaces onto the per-env base, so each env gets its own instance; only
+// the factory objects/closures are shared, saving ~28 allocations per test file.
+const SHARED_LAZY = {
+  localStorage: () => new Storage(),
+  sessionStorage: () => new Storage(),
+  matchMedia: () => makeMatchMedia(),
+  getComputedStyle: () => makeGetComputedStyle(),
+  IntersectionObserver: () => IntersectionObserver,
+  ResizeObserver: () => ResizeObserver,
+  requestAnimationFrame: () => (cb) => hostSetTimeout(() => cb(performanceNow()), 0),
+  cancelAnimationFrame: () => (id) => hostClearTimeout(id),
+  navigator: () => ({
+    userAgent: 'Mozilla/5.0 (turbo-dom) AppleWebKit/537.36',
+    platform: 'turbo-dom', vendor: '', language: 'en-US', languages: ['en-US'],
+    onLine: true, cookieEnabled: true, doNotTrack: null, maxTouchPoints: 0,
+    hardwareConcurrency: 4, deviceMemory: 8, webdriver: false,
+    clipboard: { readText: async () => '', writeText: async () => {}, read: async () => [], write: async () => {} },
+    permissions: { query: async () => ({ state: 'prompt', addEventListener() {}, removeEventListener() {} }) },
+    sendBeacon: () => true, vibrate: () => false,
+  }),
+  performance: () => ({ now: performanceNow, timeOrigin: 0, mark() {}, measure() {}, getEntriesByName: () => [], getEntriesByType: () => [], clearMarks() {}, clearMeasures() {} }),
+  Storage: () => Storage,
+  devicePixelRatio: () => 1,
+  innerWidth: () => 1024,
+  innerHeight: () => 768,
+  outerWidth: () => 1024,
+  outerHeight: () => 768,
+  scrollX: () => 0, scrollY: () => 0, pageXOffset: () => 0, pageYOffset: () => 0,
+  screenX: () => 0, screenY: () => 0, screenLeft: () => 0, screenTop: () => 0,
+  screen: () => ({ width: 1024, height: 768, availWidth: 1024, availHeight: 768, colorDepth: 24, pixelDepth: 24, orientation: { type: 'landscape-primary', angle: 0, addEventListener() {}, removeEventListener() {} } }),
+  visualViewport: () => ({ width: 1024, height: 768, scale: 1, offsetLeft: 0, offsetTop: 0, pageLeft: 0, pageTop: 0, addEventListener() {}, removeEventListener() {} }),
+};
 const hostSetInterval = globalThis.setInterval;
 const hostClearInterval = globalThis.clearInterval;
 const hostQueueMicrotask = globalThis.queueMicrotask;
@@ -107,39 +142,13 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     removeEventListener: (...a) => document.removeEventListener(...a),
   };
 
-  // Lazy globals — none constructed until touched.
+  // Per-env lazy globals: ONLY those that capture document/url/windowProxy.
+  // Everything env-independent lives in the module-level SHARED_LAZY (built once,
+  // not re-allocated per test file) — see below. None constructed until touched.
   const lazy = {
-    localStorage: () => new Storage(),
-    sessionStorage: () => new Storage(),
-    matchMedia: () => makeMatchMedia(),
-    getComputedStyle: () => makeGetComputedStyle(),
-    IntersectionObserver: () => IntersectionObserver,
-    ResizeObserver: () => ResizeObserver,
-    requestAnimationFrame: () => (cb) => hostSetTimeout(() => cb(performanceNow()), 0),
-    cancelAnimationFrame: () => (id) => hostClearTimeout(id),
     // subsystem grouping: history co-materializes with (and shares) location
     location: () => makeLocation(url),
     history: () => makeHistory(windowProxy.location),
-    navigator: () => ({
-      userAgent: 'Mozilla/5.0 (turbo-dom) AppleWebKit/537.36',
-      platform: 'turbo-dom', vendor: '', language: 'en-US', languages: ['en-US'],
-      onLine: true, cookieEnabled: true, doNotTrack: null, maxTouchPoints: 0,
-      hardwareConcurrency: 4, deviceMemory: 8, webdriver: false,
-      clipboard: { readText: async () => '', writeText: async () => {}, read: async () => [], write: async () => {} },
-      permissions: { query: async () => ({ state: 'prompt', addEventListener() {}, removeEventListener() {} }) },
-      sendBeacon: () => true, vibrate: () => false,
-    }),
-    performance: () => ({ now: performanceNow, timeOrigin: 0, mark() {}, measure() {}, getEntriesByName: () => [], getEntriesByType: () => [], clearMarks() {}, clearMeasures() {} }),
-    Storage: () => Storage,
-    devicePixelRatio: () => 1,
-    innerWidth: () => 1024,
-    innerHeight: () => 768,
-    outerWidth: () => 1024,
-    outerHeight: () => 768,
-    scrollX: () => 0, scrollY: () => 0, pageXOffset: () => 0, pageYOffset: () => 0,
-    screenX: () => 0, screenY: () => 0, screenLeft: () => 0, screenTop: () => 0,
-    screen: () => ({ width: 1024, height: 768, availWidth: 1024, availHeight: 768, colorDepth: 24, pixelDepth: 24, orientation: { type: 'landscape-primary', angle: 0, addEventListener() {}, removeEventListener() {} } }),
-    visualViewport: () => ({ width: 1024, height: 768, scale: 1, offsetLeft: 0, offsetTop: 0, pageLeft: 0, pageTop: 0, addEventListener() {}, removeEventListener() {} }),
   };
 
   windowProxy = new Proxy(base, {
@@ -147,7 +156,7 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
       if (k === 'window' || k === 'self' || k === 'globalThis' || k === 'parent' || k === 'top') return windowProxy;
       if (k in t) return t[k];            // per-env (incl. overrides + materialized lazy)
       if (k in STATIC_BASE) return STATIC_BASE[k];  // shared stateless globals
-      const factory = lazy[k];
+      const factory = lazy[k] || SHARED_LAZY[k];
       if (factory) {
         touched.add(k);
         const v = factory();
@@ -158,7 +167,7 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     },
     set(t, k, v) { t[k] = v; return true; },  // writes to base → shadows STATIC_BASE per-env
     has(t, k) {
-      return k in t || k in STATIC_BASE || k in lazy ||
+      return k in t || k in STATIC_BASE || k in lazy || k in SHARED_LAZY ||
         k === 'window' || k === 'self' || k === 'globalThis' || k === 'parent' || k === 'top';
     },
     // so vi.spyOn(window, 'scrollTo'/'open'/…) finds STATIC_BASE methods as own
@@ -178,7 +187,7 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     // which lazy globals this test materialized (the "DOM surface used" report)
     touched: () => [...touched],
     // every global name this window can provide (for environment adapters)
-    globalKeys: [...Object.keys(base), ...Object.keys(STATIC_BASE), ...Object.keys(lazy)],
+    globalKeys: [...Object.keys(base), ...Object.keys(STATIC_BASE), ...Object.keys(lazy), ...Object.keys(SHARED_LAZY)],
     // Layer 5: drop materialized global slots, keep the class machinery warm.
     resetGlobals() {
       for (const k of touched) delete base[k];
