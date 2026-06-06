@@ -223,6 +223,12 @@ test('window honest-stub surface: geometry factories + chrome no-ops are callabl
   w.removeEventListener('message', () => {}); w.terminate();
 });
 
+test('composedPath() on a never-dispatched event is [] (lazy _path)', () => {
+  const { window } = fresh();
+  const e = new window.Event('x');
+  assert.deepEqual(e.composedPath(), []);
+});
+
 test('tag-specific HTML*Element constructors throw (illegal constructor)', () => {
   const { window } = fresh();
   assert.throws(() => new window.HTMLDivElement(), /Illegal constructor/);

@@ -25,7 +25,7 @@ export class Event {
     this.timeStamp = 0;
     this._stopPropagation = false;
     this._stopImmediate = false;
-    this._path = [];
+    this._path = null;            // set by dispatchEvent; composedPath() reads [] until then
     this._passiveListener = false;
   }
 
@@ -40,7 +40,7 @@ export class Event {
   get returnValue() { return !this.defaultPrevented; }
   set returnValue(v) { if (v === false) this.preventDefault(); }
 
-  composedPath() { return this._path.slice(); }
+  composedPath() { return this._path ? this._path.slice() : []; }
 
   // legacy init — react-dom's dev rethrow path uses createEvent('Event')+initEvent
   initEvent(type, bubbles = false, cancelable = false) {
