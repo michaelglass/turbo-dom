@@ -660,8 +660,16 @@ export class Element extends Node {
   closest(sel) { let n = this; while (n && n.nodeType === ELEMENT_NODE) { if (n.matches(sel)) return n; n = n.parentNode; } return null; }
   querySelector(sel) { return cachedQS(this, sel); }
   querySelectorAll(sel) { return cachedQSA(this, sel); }
-  getElementsByTagName(tag) { const self = this; return liveHTMLCollection(() => collectByTag(self, tag.toLowerCase())); }
-  getElementsByClassName(cls) { const self = this; const classes = splitClasses(cls); return liveHTMLCollection(() => collectByClass(self, classes)); }
+  getElementsByTagName(tag) {
+    const self = this, t = tag.toLowerCase();
+    let cv = -1, ca; // version-cache the subtree walk within this collection (live; re-walk on mutation)
+    return liveHTMLCollection(() => { const d = self.ownerDocument, v = d ? (d.__version || 0) : 0; if (v === cv) return ca; cv = v; return (ca = collectByTag(self, t)); });
+  }
+  getElementsByClassName(cls) {
+    const self = this, classes = splitClasses(cls);
+    let cv = -1, ca;
+    return liveHTMLCollection(() => { const d = self.ownerDocument, v = d ? (d.__version || 0) : 0; if (v === cv) return ca; cv = v; return (ca = collectByClass(self, classes)); });
+  }
 
   // ---- innerHTML / outerHTML ----
   get innerHTML() { return serializeInner(this); }
@@ -953,8 +961,16 @@ export class ShadowRoot extends DocumentFragment {
     visit(this);
     return found;
   }
-  getElementsByTagName(tag) { const self = this; return liveHTMLCollection(() => collectByTag(self, tag.toLowerCase())); }
-  getElementsByClassName(cls) { const self = this; const classes = splitClasses(cls); return liveHTMLCollection(() => collectByClass(self, classes)); }
+  getElementsByTagName(tag) {
+    const self = this, t = tag.toLowerCase();
+    let cv = -1, ca; // version-cache the subtree walk within this collection (live; re-walk on mutation)
+    return liveHTMLCollection(() => { const d = self.ownerDocument, v = d ? (d.__version || 0) : 0; if (v === cv) return ca; cv = v; return (ca = collectByTag(self, t)); });
+  }
+  getElementsByClassName(cls) {
+    const self = this, classes = splitClasses(cls);
+    let cv = -1, ca;
+    return liveHTMLCollection(() => { const d = self.ownerDocument, v = d ? (d.__version || 0) : 0; if (v === cv) return ca; cv = v; return (ca = collectByClass(self, classes)); });
+  }
   // the topmost root of any node within is this shadow root, never the document
   get activeElement() { return null; }
 }
