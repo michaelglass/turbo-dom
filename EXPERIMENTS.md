@@ -153,6 +153,7 @@ Roughly ordered by expected value. Each must go through the full protocol.
 | v0.1.41 | 49.6s | 94.9s | addEventListener inline |
 | v0.1.42 | (passed, untimed) | (passed, untimed) | single-listener slice skip |
 | v0.1.43 | (passed, untimed) | (passed, untimed) | tagName read once |
+| v0.1.44 | 70.5s | 106.0s | nodeType read once (NOTE: machine loaded this run — wall higher than v0.1.41) |
 
 ## Ledger (append one line per experiment; newest at bottom)
 
@@ -175,3 +176,4 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - v0.1.43 — read tagName once in __nodeAt inflation — SHIPPED (+5.5% inflation/traverse; suites 6188 + 9670 green). Non-material to headline ratios → README unchanged.
 - DITCHED — setAttribute/removeAttribute .find/.filter → index-loop+splice: microbench SLOWER (8.9M vs 9.3-9.45M renders/s, every run). V8 optimizes .find/.filter on small attr arrays better than manual loops (+ splice shift cost). Closure!=slow here — opposite of addEventListener .some(); always measure, never assume.
 - DITCHED — classList memoize (this.__classList): microbench overlapped (1.95-1.98M vs 1.91-2.00M elems/s). Transient ClassList is cheap/escape-analyzed; memoize slot-write offsets it. (style/dataset memoize stays — those proxies are heavier.)
+- v0.1.44 — read nodeType once during child inflation — SHIPPED (+5% inflation A/B; suites 6188 + 9670 green, 70.5s/106.0s under load). Scorecard absolutes are session-relative (load-dependent) — trust back-to-back A/B, not vs stale baseline.
