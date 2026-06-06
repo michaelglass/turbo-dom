@@ -258,6 +258,11 @@ test('childElementCount/first/last share the version-cache and reflect mutations
   ul.removeChild(ul.firstElementChild);
   assert.equal(ul.childElementCount, 2);
   assert.equal(ul.firstElementChild.textContent, 'b');
+  // sibling edges: forward scan finds the next element; last/first return null
+  assert.equal(ul.firstElementChild.nextElementSibling, ul.lastElementChild);
+  assert.equal(ul.lastElementChild.previousElementSibling, ul.firstElementChild);
+  assert.equal(ul.lastElementChild.nextElementSibling, null);
+  assert.equal(ul.firstElementChild.previousElementSibling, null);
 });
 
 test('composedPath() on a never-dispatched event is [] (lazy _path)', () => {
