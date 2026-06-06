@@ -173,3 +173,4 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - DITCHED — move dispatch invoke-closure inside hasListener: microbench overlapped (3.08-3.24M vs 3.15-3.18M). V8 escape-analysis already elides the non-escaping closure. No win.
 - v0.1.42 — skip listener-snapshot slice for single-listener dispatch — SHIPPED (+13% single-listener dispatch; suites 6188 + 9670 green). Snapshot semantics regression-tested.
 - v0.1.43 — read tagName once in __nodeAt inflation — SHIPPED (+5.5% inflation/traverse; suites 6188 + 9670 green). Non-material to headline ratios → README unchanged.
+- DITCHED — setAttribute/removeAttribute .find/.filter → index-loop+splice: microbench SLOWER (8.9M vs 9.3-9.45M renders/s, every run). V8 optimizes .find/.filter on small attr arrays better than manual loops (+ splice shift cost). Closure!=slow here — opposite of addEventListener .some(); always measure, never assume.
