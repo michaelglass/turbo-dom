@@ -8,6 +8,18 @@ The runtime (`src/runtime/*.mjs`) is pure JS — only the parser is the native `
 So a runtime change can be **hot-swapped** into a consuming repo's `node_modules` without
 rebuilding: copy the `.mjs` files over.
 
+## KPI (the real goal)
+
+Reliably get the real suites UNDER these wall-clock targets over time, via genuine
+turbo-dom improvements — never by sacrificing correctness, coverage, or honesty:
+- ../ui-design-components < 50s
+- ../payroll-app < 75s
+
+turbo-dom only controls the `environment` + part of the `tests`/`setup` buckets;
+`import`/`transform` (vitest module loading) dominate and are out of our hands. So
+progress is cumulative small per-file wins. Wall-clock is load-noisy — the KPI is a
+TREND target, validated when the machine is quiet.
+
 ## Repos to validate against (real suites, turbo-dom vitest env)
 
 | repo | run command | files |
@@ -177,3 +189,4 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - DITCHED — setAttribute/removeAttribute .find/.filter → index-loop+splice: microbench SLOWER (8.9M vs 9.3-9.45M renders/s, every run). V8 optimizes .find/.filter on small attr arrays better than manual loops (+ splice shift cost). Closure!=slow here — opposite of addEventListener .some(); always measure, never assume.
 - DITCHED — classList memoize (this.__classList): microbench overlapped (1.95-1.98M vs 1.91-2.00M elems/s). Transient ClassList is cheap/escape-analyzed; memoize slot-write offsets it. (style/dataset memoize stays — those proxies are heavier.)
 - v0.1.44 — read nodeType once during child inflation — SHIPPED (+5% inflation A/B; suites 6188 + 9670 green, 70.5s/106.0s under load). Scorecard absolutes are session-relative (load-dependent) — trust back-to-back A/B, not vs stale baseline.
+- DITCHED — textContent cache c.nodeType in a local: SLOWER/overlap (109 vs 105-107ms). node.nodeType is a constant-returning getter V8 INLINES free — caching it adds nothing. (Contrast buf.tagName/buf.nodeType wins: those are real SoA array reads.) Lesson: redundant-read wins are for real lookups, not inlined constant getters.
