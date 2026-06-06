@@ -240,8 +240,13 @@ export class Node extends EventTarget {
   }
 
   get textContent() {
+    const kids = this.__children();
+    // hot leaf case (RTL getByText reads textContent on every element): a single
+    // text child → return its data directly, skipping the iterator + concat.
+    if (kids.length === 1 && kids[0].nodeType === TEXT_NODE) return kids[0].data;
     let s = '';
-    for (const c of this.__children()) {
+    for (let i = 0; i < kids.length; i++) {
+      const c = kids[i];
       if (c.nodeType === TEXT_NODE) s += c.data;
       else if (c.nodeType === ELEMENT_NODE || c.nodeType === DOCUMENT_FRAGMENT_NODE) s += c.textContent;
     }
