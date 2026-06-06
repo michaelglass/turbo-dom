@@ -197,3 +197,5 @@ Roughly ordered by expected value. Each must go through the full protocol.
 | v0.1.46 | 49.9s (loaded) | 101.0s (loaded) | lazy window.origin (+18% createEnvironment) |
 - v0.1.46 — lazy window.origin (eager new URL(url) → per-env lazy) — SHIPPED (+18% createEnvironment, biggest env win; suites green, wall load-noisy this run). URL parse is heavy; deferring it for the common non-origin-reading test is a big per-file env-bucket cut.
 - DITCHED — Image/Audio/getSelection base closures → lazy: createEnvironment overlap (982-984k vs 980-987k). Closures are cheap to build; the v0.1.46 origin win was the heavy URL PARSE specifically, not closure-deferral. Lesson: lazy-defer pays only for genuinely heavy eager work (URL parse, Maps), not cheap closures.
+| v0.1.47 | 48.1s ✓<50 | 87.6s | unpack SoA once per cached HTML (+27% createEnvironment) — payroll lowest yet |
+- v0.1.47 — unpack SoA blob once per cached HTML (was re-unpacked per Document) — SHIPPED (+27% createEnvironment, biggest env win; uidc 48.1s ✓, payroll 87.6s lowest yet; both green). Parse cache now memoizes UNPACKED soa; read-only views shared across Documents.
