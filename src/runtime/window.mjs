@@ -133,7 +133,8 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     document,
     name: '',
     closed: false,
-    origin: new URL(url).origin,
+    // origin is lazy (per-env, captures url) — window.origin is rarely read, so the
+    // eager `new URL(url)` parse per createWindow was usually wasted.
     // customElements is lazy (SHARED_LAZY) — env-independent + rarely used; building
     // its two Maps eagerly per createWindow was wasted for the typical test.
     Image: function Image(w, h) { const img = document.createElement('img'); if (w != null) img.setAttribute('width', w); if (h != null) img.setAttribute('height', h); return img; },
@@ -148,6 +149,7 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
   // Everything env-independent lives in the module-level SHARED_LAZY (built once,
   // not re-allocated per test file) — see below. None constructed until touched.
   const lazy = {
+    origin: () => new URL(url).origin,
     // subsystem grouping: history co-materializes with (and shares) location
     location: () => makeLocation(url),
     history: () => makeHistory(windowProxy.location),
