@@ -181,11 +181,24 @@ export class Node extends EventTarget {
 
   get isConnected() {
     let n = this;
-    while (n.parentNode) n = n.parentNode;
-    return n.nodeType === DOCUMENT_NODE;
+    for (;;) {
+      while (n.parentNode) n = n.parentNode;
+      // a node inside a shadow tree is connected iff its host is connected
+      if (n.__isShadowRoot) { n = n.host; continue; }
+      return n.nodeType === DOCUMENT_NODE;
+    }
   }
-  getRootNode() {
+  getRootNode(options) {
     let n = this;
+    if (options && options.composed) {
+      // climb through shadow boundaries to the topmost root (document/detached)
+      for (;;) {
+        while (n.parentNode) n = n.parentNode;
+        if (n.__isShadowRoot) { n = n.host; continue; }
+        return n;
+      }
+    }
+    // non-composed: stop at the enclosing shadow root if there is one
     while (n.parentNode) n = n.parentNode;
     return n;
   }
@@ -244,6 +257,10 @@ export class Node extends EventTarget {
   // __kids reassignments (innerHTML/textContent/replaceChildren) that bypass
   // insertBefore/removeChild.
   __touch() { const d = this.ownerDocument; if (d) d.__version = (d.__version || 0) + 1; }
+
+  // Element/Document/Fragment nodeValue is null per spec (CharacterData overrides).
+  get nodeValue() { return null; }
+  set nodeValue(_v) { /* no-op for non-CharacterData nodes, per spec */ }
 
   // window/document path for event propagation past the document
   get __owner() { return null; }
@@ -454,7 +471,11 @@ export class Element extends Node {
       return list.length && !this.multiple ? list[0].value : '';
     }
     if (t === 'option') return this.hasAttribute('value') ? this.getAttribute('value') : this.textContent;
-    if (t === 'input' || t === 'textarea') return this.__value !== undefined ? this.__value : (this.getAttribute('value') ?? '');
+    // textarea has no value attribute — its raw value defaults to the child text
+    // content (the WHATWG "default value") until edited; input falls back to the
+    // value attribute (defaultValue).
+    if (t === 'textarea') return this.__value !== undefined ? this.__value : this.textContent;
+    if (t === 'input') return this.__value !== undefined ? this.__value : (this.getAttribute('value') ?? '');
     return undefined;
   }
   set value(x) {
@@ -786,17 +807,46 @@ export class Element extends Node {
   getContext(type) { return this.localName === 'canvas' ? (this.__ctx ||= makeCanvasStub()) : null; }
   toDataURL() { return 'data:,'; }
 
-  // shadow DOM (open by default; a detached fragment with a host back-reference)
+  // shadow DOM. Flipping doc.__hasShadow arms the gated slow paths (event
+  // retargeting in events.mjs, scoped cascade in cascade.mjs); before the first
+  // attachShadow every benchmarked path runs exactly as it did with no shadow code.
   attachShadow(init = {}) {
-    const root = new DocumentFragment(this.ownerDocument);
-    root.host = this;
-    root.mode = init.mode || 'open';
-    root.querySelector = (s) => qsel(root, s);
-    root.querySelectorAll = (s) => qselAll(root, s);
+    if (this.__shadow) throw new Error('NotSupportedError: shadow root already attached');
+    const root = new ShadowRoot(this, init.mode || 'open', init.delegatesFocus);
     this.__shadow = root;
     if (root.mode === 'open') this.shadowRoot = root;
+    const doc = this.ownerDocument;
+    if (doc) doc.__hasShadow = true;
     return root;
   }
+
+  // ---- <slot> projection (all on-demand; never touched by parse/query/events) ----
+  // A light-DOM child's assigned slot: the matching <slot> in its parent host's
+  // shadow tree, or null when the parent isn't a shadow host / no slot matches.
+  get assignedSlot() {
+    const host = this.parentNode;
+    if (!host || !host.__shadow) return null;
+    return findSlot(host.__shadow, this.getAttribute('slot') || '');
+  }
+  // <slot>.assignedNodes(): the host's light children routed to this slot by name
+  // (default slot ← unnamed children + text). With {flatten:true} an empty slot
+  // falls back to its own children (the slot's default content).
+  assignedNodes(options) {
+    if (this.localName !== 'slot') return [];
+    const root = this.getRootNode();
+    if (!root.__isShadowRoot) return [];
+    const slotName = this.getAttribute('name') || '';
+    const out = [];
+    for (const c of root.host.__children()) {
+      if (c.nodeType === ELEMENT_NODE) { if ((c.getAttribute('slot') || '') === slotName) out.push(c); }
+      else if (c.nodeType === TEXT_NODE && slotName === '') out.push(c); // text routes only to the default slot
+    }
+    if (out.length === 0 && options && options.flatten) {
+      return this.__children().filter((n) => n.nodeType === ELEMENT_NODE || n.nodeType === TEXT_NODE);
+    }
+    return out;
+  }
+  assignedElements(options) { return this.assignedNodes(options).filter((n) => n.nodeType === ELEMENT_NODE); }
 
   // forms
   get form() { return this.closest ? this.closest('form') : null; }
@@ -837,8 +887,72 @@ export class DocumentFragment extends Node {
   cloneNode(deep = false) { const f = new DocumentFragment(this.ownerDocument); if (deep) for (const c of this.__children()) f.appendChild(c.cloneNode(true)); return f; }
 }
 
+// A real shadow root: a detached document-fragment subtree with a back-reference
+// to its host element. `__isShadowRoot` is the duck-typed flag events.mjs and
+// Node.getRootNode/isConnected branch on (no import cycle). Encapsulation is free
+// — the host's __children() never includes this subtree, so querySelector /
+// getElementsBy* / matching never reach in.
+export class ShadowRoot extends DocumentFragment {
+  constructor(host, mode = 'open', delegatesFocus = false) {
+    super(host.ownerDocument);
+    this.host = host;
+    this.mode = mode;
+    this.delegatesFocus = !!delegatesFocus;
+    this.__isShadowRoot = true;
+  }
+  get nodeName() { return '#document-fragment'; }
+  get innerHTML() { return serializeInner(this); }
+  set innerHTML(html) {
+    const frag = native.parseFragment(String(html), ''); // empty context → body
+    this.__kids = [];
+    this.__touch();
+    for (const rawChild of frag.children) {
+      if (rawChild.nodeType === DOCUMENT_FRAGMENT_NODE && rawChild.name === 'content') continue;
+      const child = this.ownerDocument.__inflateNested(rawChild);
+      child.parentNode = this;
+      this.__kids.push(child);
+    }
+  }
+  getElementById(id) {
+    let found = null;
+    const visit = (node) => {
+      const kids = node.__children();
+      for (let i = 0; i < kids.length; i++) {
+        const c = kids[i];
+        if (c.nodeType !== ELEMENT_NODE) continue;
+        if (c.getAttribute('id') === id) { found = c; return; }
+        visit(c);
+        if (found) return;
+      }
+    };
+    visit(this);
+    return found;
+  }
+  getElementsByTagName(tag) { const self = this; return liveHTMLCollection(() => collectByTag(self, tag.toLowerCase())); }
+  getElementsByClassName(cls) { const self = this; const classes = splitClasses(cls); return liveHTMLCollection(() => collectByClass(self, classes)); }
+  // the topmost root of any node within is this shadow root, never the document
+  get activeElement() { return null; }
+}
+
 // ------------------------------------------------------------ helpers ----
 function toNode(doc, n) { return typeof n === 'string' ? doc.createTextNode(n) : n; }
+
+// First <slot> within a shadow tree whose name matches (default slot: name '').
+function findSlot(shadowRoot, name) {
+  let found = null;
+  const visit = (node) => {
+    const kids = node.__children();
+    for (let i = 0; i < kids.length; i++) {
+      const c = kids[i];
+      if (c.nodeType !== ELEMENT_NODE) continue;
+      if (c.localName === 'slot' && (c.getAttribute('name') || '') === name) { found = c; return; }
+      visit(c);
+      if (found) return;
+    }
+  };
+  visit(shadowRoot);
+  return found;
+}
 
 function collectByTag(root, tag) {
   const out = [];
@@ -889,7 +1003,16 @@ function zeroRect() {
   return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() { return this; } };
 }
 
-// Range — functional enough for selection bookkeeping (user-event), zero geometry.
+// child index of `node` within its parent (per spec: the node's "index")
+function nodeIndex(node) {
+  const p = node.parentNode;
+  if (!p) return 0;
+  return p.__children().indexOf(node);
+}
+
+// Range — functional DOM Range. Tree-mutating ops (extract/clone/delete/insert/
+// surround) implement the common case (a single container with element/text
+// children, offsets as child indices). Zero geometry (no layout).
 class Range {
   constructor(doc) {
     this.__doc = doc;
@@ -898,42 +1021,106 @@ class Range {
   }
   setStart(node, offset) { this.startContainer = node; this.startOffset = offset; this.__sync(); }
   setEnd(node, offset) { this.endContainer = node; this.endOffset = offset; this.__sync(); }
-  setStartBefore(node) { this.setStart(node.parentNode, 0); }
-  setStartAfter(node) { this.setStart(node.parentNode, 0); }
-  setEndBefore(node) { this.setEnd(node.parentNode, 0); }
-  setEndAfter(node) { this.setEnd(node.parentNode, 0); }
-  selectNode(node) { this.startContainer = this.endContainer = node; this.__sync(); }
-  selectNodeContents(node) { this.startContainer = this.endContainer = node; this.startOffset = 0; this.endOffset = node.childNodes ? node.childNodes.length : 0; this.__sync(); }
+  setStartBefore(node) { this.setStart(node.parentNode, nodeIndex(node)); }
+  setStartAfter(node) { this.setStart(node.parentNode, nodeIndex(node) + 1); }
+  setEndBefore(node) { this.setEnd(node.parentNode, nodeIndex(node)); }
+  setEndAfter(node) { this.setEnd(node.parentNode, nodeIndex(node) + 1); }
+  // selectNode: container is the node's parent, offsets bracket the node.
+  selectNode(node) { const p = node.parentNode, i = nodeIndex(node); this.startContainer = this.endContainer = p; this.startOffset = i; this.endOffset = i + 1; this.__sync(); }
+  selectNodeContents(node) { this.startContainer = this.endContainer = node; this.startOffset = 0; this.endOffset = node.nodeType === TEXT_NODE || node.nodeType === COMMENT_NODE ? node.length : node.__children().length; this.__sync(); }
   collapse(toStart) { if (toStart) { this.endContainer = this.startContainer; this.endOffset = this.startOffset; } else { this.startContainer = this.endContainer; this.startOffset = this.endOffset; } this.collapsed = true; }
   __sync() { this.collapsed = this.startContainer === this.endContainer && this.startOffset === this.endOffset; }
-  get commonAncestorContainer() { return this.startContainer; }
-  cloneRange() { const r = new Range(this.__doc); Object.assign(r, this); return r; }
-  cloneContents() { return this.__doc.createDocumentFragment(); }
-  deleteContents() {}
-  insertNode(node) { if (this.startContainer && this.startContainer.insertBefore) this.startContainer.insertBefore(node, this.startContainer.childNodes[this.startOffset] ?? null); }
-  surroundContents(node) { this.insertNode(node); }
+  // common ancestor: walk up from start until it contains end (per spec).
+  get commonAncestorContainer() {
+    let container = this.startContainer;
+    while (container && !(container === this.endContainer || (container.contains && container.contains(this.endContainer)))) {
+      container = container.parentNode;
+    }
+    return container || this.startContainer;
+  }
+  cloneRange() { const r = new Range(this.__doc); r.startContainer = this.startContainer; r.endContainer = this.endContainer; r.startOffset = this.startOffset; r.endOffset = this.endOffset; r.collapsed = this.collapsed; return r; }
+  // The common single-container case: start === end container, offsets are child
+  // indices (element children) or string offsets (a text/comment container).
+  __sameContainerKids() { return this.startContainer === this.endContainer; }
+  cloneContents() {
+    const frag = this.__doc.createDocumentFragment();
+    const c = this.startContainer;
+    if (this.__sameContainerKids() && c && c.nodeType !== TEXT_NODE && c.nodeType !== COMMENT_NODE && c.__children) {
+      const kids = c.__children();
+      for (let i = this.startOffset; i < this.endOffset && i < kids.length; i++) frag.appendChild(kids[i].cloneNode(true));
+    }
+    return frag;
+  }
+  extractContents() {
+    const frag = this.__doc.createDocumentFragment();
+    const c = this.startContainer;
+    if (this.__sameContainerKids() && c && c.nodeType !== TEXT_NODE && c.nodeType !== COMMENT_NODE && c.__children) {
+      const kids = c.__children().slice(this.startOffset, this.endOffset);
+      for (const k of kids) frag.appendChild(k); // moves out of the tree
+    }
+    this.collapse(true);
+    return frag;
+  }
+  deleteContents() {
+    const c = this.startContainer;
+    if (this.__sameContainerKids() && c && c.nodeType !== TEXT_NODE && c.nodeType !== COMMENT_NODE && c.__children) {
+      const kids = c.__children().slice(this.startOffset, this.endOffset);
+      for (const k of kids) c.removeChild(k);
+    }
+    this.collapse(true);
+  }
+  insertNode(node) { if (this.startContainer && this.startContainer.insertBefore) this.startContainer.insertBefore(node, this.startContainer.__children ? (this.startContainer.__children()[this.startOffset] ?? null) : null); }
+  surroundContents(node) {
+    const frag = this.extractContents();
+    this.insertNode(node);
+    node.appendChild(frag);
+  }
+  // textual content of the range: the common single-container case.
+  toString() {
+    const c = this.startContainer;
+    if (c && (c.nodeType === TEXT_NODE || c.nodeType === COMMENT_NODE)) {
+      if (this.__sameContainerKids()) return c.data.slice(this.startOffset, this.endOffset);
+      return c.data.slice(this.startOffset);
+    }
+    if (this.__sameContainerKids() && c && c.__children) {
+      let s = '';
+      const kids = c.__children();
+      for (let i = this.startOffset; i < this.endOffset && i < kids.length; i++) s += kids[i].textContent;
+      return s;
+    }
+    return '';
+  }
   getBoundingClientRect() { return zeroRect(); }
   getClientRects() { return []; }
   detach() {}
 }
 
-function makeSelection() {
+function makeSelection(doc) {
   let ranges = [];
-  return {
+  const sel = {
     get rangeCount() { return ranges.length; },
-    get isCollapsed() { return ranges.every((r) => r.collapsed); },
+    get isCollapsed() { return ranges.length === 0 || ranges.every((r) => r.collapsed); },
     get anchorNode() { return ranges[0] ? ranges[0].startContainer : null; },
     get focusNode() { return ranges[0] ? ranges[0].endContainer : null; },
     get anchorOffset() { return ranges[0] ? ranges[0].startOffset : 0; },
     get focusOffset() { return ranges[0] ? ranges[0].endOffset : 0; },
-    get type() { return ranges.length ? 'Range' : 'None'; },
+    get type() { return ranges.length === 0 ? 'None' : ranges[0].collapsed ? 'Caret' : 'Range'; },
     addRange(r) { ranges.push(r); },
     removeAllRanges() { ranges = []; },
     removeRange(r) { ranges = ranges.filter((x) => x !== r); },
     getRangeAt(i) { return ranges[i]; },
-    collapse() {}, extend() {}, selectAllChildren() {}, setBaseAndExtent() {}, empty() { ranges = []; },
-    toString() { return ''; },
+    // collapse(node, offset): a single collapsed range at the point.
+    collapse(node, offset = 0) { if (node == null) { ranges = []; return; } const r = new Range(doc); r.setStart(node, offset); r.setEnd(node, offset); ranges = [r]; },
+    collapseToStart() { if (ranges[0]) ranges[0].collapse(true); },
+    collapseToEnd() { if (ranges[0]) ranges[0].collapse(false); },
+    // extend(node, offset): move the focus (range end) to the new point.
+    extend(node, offset = 0) { if (!ranges[0]) ranges = [new Range(doc)]; ranges[0].setEnd(node, offset); },
+    selectAllChildren(node) { const r = new Range(doc); r.selectNodeContents(node); ranges = [r]; },
+    setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset) { const r = new Range(doc); r.setStart(anchorNode, anchorOffset); r.setEnd(focusNode, focusOffset); ranges = [r]; },
+    empty() { ranges = []; },
+    toString() { return ranges[0] ? ranges[0].toString() : ''; },
   };
+  return sel;
 }
 
 // TreeWalker / NodeIterator over the DOM (doubles for both — common subset).
@@ -1299,8 +1486,7 @@ export class Document extends Node {
   }
   createRange() { return new Range(this); }
   createAttribute(name) { return { name, value: '', ownerElement: null }; }
-  createComment(data) { return new Comment(this, String(data)); }
-  getSelection() { if (!this.__selection) this.__selection = makeSelection(); return this.__selection; }
+  getSelection() { if (!this.__selection) this.__selection = makeSelection(this); return this.__selection; }
   importNode(node, deep) { return node.cloneNode(deep); }
   adoptNode(node) { if (node.parentNode) node.parentNode.removeChild(node); adoptInto(node, this); return node; }
 

@@ -14,7 +14,7 @@ npm install -D @miaskiewicz/turbo-dom
 
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
   Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
-- ⚡ **Faster than both** — ~120× jsdom / ~40× happy-dom on a realistic suite (parse-memoized repeated shells), 18–37× faster HTML parsing, and it beats happy-dom on repeated queries while staying 99.7% spec-correct.
+- ⚡ **Faster than both** — ~130× jsdom / ~45× happy-dom on a realistic suite (parse-memoized repeated shells), ~8–35× faster HTML parsing on real pages, and ~2.2× happy-dom on repeated queries while staying 99.7% spec-correct.
 - 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros.
   `getComputedStyle` runs a **partial cascade**: it resolves real injected `<style>` rules
   (emotion/MUI `.css-HASH{…}`) + inline styles with proper specificity/source order — but only
@@ -94,6 +94,7 @@ parseFragment('<rect/>', 'svg path');              // fragment in a context elem
 | React + Radix / Headless UI / downshift | ✅ | partial | ✅ |
 | Real layout | ❌ (honest stub) | partial | partial |
 | `getComputedStyle` cascade | partial (real `<style>` + inline) | partial | partial |
+| Shadow DOM (attach, slots, event retargeting, scoped/`:host` CSS) | ✅ | ✅ | ✅ |
 
 turbo-dom inherits Servo's tree constructor, so the "messy input" cases hand-rolled parsers
 get wrong — adoption-agency reparenting (`<a><p></a></p>`), table foster-parenting, optional
@@ -108,16 +109,17 @@ the suite row (ms/file, lower = faster):
 
 | benchmark | turbo-dom | happy-dom | jsdom |
 |---|---:|---:|---:|
-| **realistic suite**, 200 files (ms/file) | **0.022** | 1.12 | 3.47 |
-| **per-file setup** (ops/s) | **~500k** | 396 | 144 |
-| **parse 56 KB SSR** (ops/s) | **478** | 43 | 26 |
-| **parse 20 KB real page** (ops/s) | **2,800** | 600 | 290 |
-| repeated query throughput (iters/s) | **994k** | 692k | 3k |
+| **realistic suite**, 200 files (ms/file) | **~0.025** | 1.13 | 3.40 |
+| **cold per-file construct + query** (ops/s) | **~200k** | 579 | 266 |
+| **parse 56 KB SSR** (ops/s) | **510** | 48 | 66 |
+| **parse 20 KB real page** (ops/s) | **3,628** | 161 | 105 |
+| repeated query throughput (iters/s) | **~1.5M** | 680k | 3.3k |
 | html5lib conformance | **99.72%** | 37.35% | 97.03% |
 
 On a realistic suite — 200 files of construct + queries + events — turbo-dom is
-**~40× happy-dom and ~120× jsdom**, edges happy-dom on repeated queries, and parses
-**18–37×** faster, all at 99.7% conformance.
+**~45× happy-dom and ~130× jsdom**, runs repeated queries **~2.2× happy-dom**
+(~460× jsdom), and parses real pages/SSR documents **~8–35×** faster, all at 99.7%
+conformance.
 
 The per-file setup number is so high because the parser **memoizes the read-only
 SoA buffer by HTML string**: a suite calls the env setup with the same document
@@ -126,7 +128,7 @@ go to per-Document overlays) is reused. The first parse of a given shell pays fu
 cost (the parse rows above); every reuse is near-free.
 
 **turbo-dom wins across the board on what test suites actually do**: per-file
-construction (~40× happy-dom, ~120× jsdom on a repeated-shell suite), parsing,
+construction (~45× happy-dom, ~130× jsdom on a repeated-shell suite), parsing,
 spec-correctness (99.7% vs 37%), **and** repeated queries.
 
 How the query speed holds up against happy-dom (whose whole design trades correctness
@@ -164,6 +166,14 @@ JS (chatty, fine-grained) but pays only for what a test touches. Full design not
   matched rule or inline declaration — never an invented one. Style/geometry assertions belong
   in a real browser (Playwright/WebDriver).
 - Canvas, `<select>` rendering, and similar visual APIs are honest no-op stubs.
+- **Shadow DOM** is supported and pay-for-what-you-use — every event/query/cascade hot path
+  is unchanged until the first `attachShadow` flips a per-document flag. Covered: `attachShadow`
+  (open/closed), encapsulated `querySelector`/`getElementById`, `getRootNode({composed})`,
+  full event propagation with `target`/`relatedTarget` retargeting and `composed` boundary
+  crossing, `<slot>` `assignedNodes`/`assignedElements`/`assignedSlot`, scoped `getComputedStyle`
+  with `:host`/`:host(...)`/`::slotted(...)` and inheritance across the boundary, and declarative
+  `<template shadowrootmode>` promotion. Out of scope (honest): flattened-tree layout, `slotchange`
+  events, and the cascade caveats above (`@media`/state/pseudo-elements) inside shadow trees.
 
 ## Development
 

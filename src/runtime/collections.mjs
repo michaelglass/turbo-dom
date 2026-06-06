@@ -2,7 +2,11 @@
 // reflect mutations immediately — the exact place happy-dom bleeds liveness bugs.
 
 function makeLive(getArray, extra = {}) {
-  const target = function () {};
+  // Plain-object target: it has no non-configurable own keys, so ownKeys can
+  // report indices + length without tripping the proxy invariant (a function
+  // target carries a non-configurable `prototype`, which made Object.keys(coll)
+  // throw and `typeof coll` wrongly 'function' — HTMLCollection is an object).
+  const target = {};
   return new Proxy(target, {
     get(_t, key) {
       if (typeof key === 'string') {

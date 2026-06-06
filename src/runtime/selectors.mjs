@@ -109,11 +109,6 @@ function splitTopLevel(s, sep) {
   return out;
 }
 
-function elementChildren(node) {
-  const kids = typeof node.__children === 'function' ? node.__children() : Array.from(node.childNodes || []);
-  return kids.filter((n) => n.nodeType === 1);
-}
-
 function matchAttr(el, a) {
   const raw = el.getAttribute(a.name);   // single lookup (null = absent)
   if (raw === null) return false;

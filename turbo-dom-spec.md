@@ -246,7 +246,10 @@ Headless runners have no layout, so stop pretending (and stop lying):
 
 - `getBoundingClientRect()` → zeros by default. Opt-in fake layout model only if a test
   asks (separate module).
-- No CSS cascade; no `getComputedStyle` realism beyond inline styles + explicitly-set values.
+- `getComputedStyle` is a **partial cascade** (since v0.1.29): it resolves REAL injected
+  `<style>` rules + inline styles with specificity/source order, shadow-root scoping with
+  `:host`/`::slotted`, and inheritance into shadow content — but never invents a value
+  (unmatched props read `''`). Still no layout/`@media`/state/pseudo-element realism.
 - No reflow.
 - **Honest absence over plausible lie:** prefer a `getComputedStyle` that clearly signals
   "layout not available; opt in with X" over one that returns 30%-correct values that pass

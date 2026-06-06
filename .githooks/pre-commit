@@ -1,0 +1,20 @@
+#!/bin/sh
+# turbo-dom pre-commit gate (zero-dep; wired via `core.hooksPath=.githooks`,
+# set by the package.json "prepare" script on `npm install`).
+#
+# Runs the full JS test suite WITH the coverage gate in one pass. This also
+# executes test/conformance.test.mjs, so the conformance threshold is enforced
+# too. Fails the commit (non-zero exit) if any test fails OR runtime coverage
+# drops below the thresholds in the "test:cov" script.
+#
+# Skip in an emergency with:  git commit --no-verify
+set -e
+
+# Only gate when source or tests actually changed — docs/bench-only commits skip.
+if git diff --cached --name-only | grep -qE '^(src/|test/|harness/|index\.js|package\.json)'; then
+  echo "[pre-commit] running test suite + coverage gate (npm run test:cov)…"
+  npm run --silent test:cov
+  echo "[pre-commit] ✓ tests pass, coverage + conformance gates met"
+else
+  echo "[pre-commit] no src/test changes staged — skipping test gate"
+fi

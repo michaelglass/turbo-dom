@@ -1,6 +1,6 @@
 {
   "name": "@miaskiewicz/turbo-dom",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "license": "MIT",
   "main": "index.js",
@@ -56,8 +56,10 @@
     "build:wasm": "cargo build --release --no-default-features --features wasm-bind --target wasm32-unknown-unknown",
     "build:wasm:pkg": "wasm-pack build --target nodejs --out-dir pkg --no-default-features --features wasm-bind",
     "test": "node --test 'test/*.mjs'",
+    "test:cov": "node --test --experimental-test-coverage --test-coverage-include='src/runtime/**' --test-coverage-lines=99 --test-coverage-functions=87 --test-coverage-branches=87 'test/*.mjs'",
     "test:rust": "cargo test --lib",
     "test:all": "npm run build && npm run test:rust && npm test",
+    "prepare": "git config core.hooksPath .githooks || true",
     "conformance": "node harness/conformance.mjs",
     "conformance:delta": "node harness/delta.mjs",
     "bench": "node bench/parse.mjs",

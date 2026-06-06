@@ -112,6 +112,33 @@ function normalizeOptions(options) {
   return { capture: !!options.capture, once: !!options.once, passive: !!options.passive };
 }
 
+// ---- shadow DOM event support ----
+// Duck-typed (ShadowRoot sets `__isShadowRoot`/`host`) to avoid a dom.mjs import
+// cycle. NONE of this runs unless the document has a shadow root attached — the
+// hot dispatch path branches on `doc.__hasShadow` and skips it entirely.
+function treeRootOf(node) { let n = node; while (n.parentNode) n = n.parentNode; return n; }
+// Is `b` a shadow-including inclusive descendant of tree-root `root`? Walks up
+// through parentNode, hopping shadow-root→host at each boundary.
+function shadowInclusiveDescendant(b, root) {
+  let n = b;
+  while (n) {
+    if (n === root) return true;
+    n = n.parentNode || (n.__isShadowRoot ? n.host : null); // hop boundary, else stop
+  }
+  return false;
+}
+// WHATWG retarget(A, B): the version of A visible to a listener whose
+// currentTarget is B. If A lives in a shadow tree that B is outside of, A is
+// reported as that tree's host (and recursively, for nested shadows). The loop
+// always terminates — each hop climbs one shadow boundary toward the document.
+function retarget(a, b) {
+  for (;;) {
+    const r = treeRootOf(a);
+    if (!r.__isShadowRoot || shadowInclusiveDescendant(b, r)) return a;
+    a = r.host;
+  }
+}
+
 export class EventTarget {
   constructor() {
     // type -> array of { callback, capture, once, passive }. Lazily created on
@@ -153,7 +180,8 @@ export class EventTarget {
 
   dispatchEvent(event) {
     if (!(event instanceof Event)) throw new TypeError('dispatchEvent requires an Event');
-    event.target = this;
+    const target = this;
+    event.target = target;
 
     // Single ancestor walk: build the path AND note whether any node on it has a
     // listener for this type. React fires thousands of events with zero matching
@@ -161,11 +189,32 @@ export class EventTarget {
     const type = event.type;
     const path = [];
     let hasListener = false;
-    let node = this;
-    while (node) {
-      path.push(node);
-      if (!hasListener) { const l = node.__listeners && node.__listeners.get(type); if (l && l.length) hasListener = true; }
-      node = node.parentNode || node.__owner || null;
+    // Pay-for-what-you-use: the shadow-aware walk + per-invoke retargeting only
+    // runs when a shadow root exists in this document. Otherwise the original
+    // flat walk runs byte-for-byte (one boolean read, predicted false).
+    const doc = this.ownerDocument || this;
+    const useShadow = !!(doc && doc.__hasShadow);
+    if (!useShadow) {
+      let node = this;
+      while (node) {
+        path.push(node);
+        if (!hasListener) { const l = node.__listeners && node.__listeners.get(type); if (l && l.length) hasListener = true; }
+        node = node.parentNode || node.__owner || null;
+      }
+    } else {
+      const targetRoot = treeRootOf(target);
+      let node = this;
+      while (node) {
+        path.push(node);
+        if (!hasListener) { const l = node.__listeners && node.__listeners.get(type); if (l && l.length) hasListener = true; }
+        if (node.__isShadowRoot) {
+          // a non-composed event stops at the shadow boundary enclosing its
+          // target; a composed event continues up through the host.
+          node = (!event.composed && node === targetRoot) ? null : (node.host || null);
+        } else {
+          node = node.parentNode || node.__owner || null;
+        }
+      }
     }
     event._path = path;
 
@@ -176,11 +225,19 @@ export class EventTarget {
       activation = this.__preClickActivation();
     }
 
+    // relatedTarget (focus/mouseenter/mouseleave) is retargeted per listener
+    // exactly like target. Only relevant under shadow with a non-null value.
+    const relatedTarget = useShadow ? event.relatedTarget : null;
     const invoke = (node, phase) => {
       const list = node.__listeners && node.__listeners.get(event.type);
       if (!list || list.length === 0) return;
       event.currentTarget = node;
       event.eventPhase = phase;
+      // present `target`/`relatedTarget` retargeted to the listener's tree
+      if (useShadow) {
+        event.target = retarget(target, node);
+        if (relatedTarget != null) event.relatedTarget = retarget(relatedTarget, node);
+      }
       // snapshot — listeners added during dispatch don't fire this round
       for (const l of list.slice()) {
         if (phase === PHASE_CAPTURING && !l.capture) continue;
@@ -221,6 +278,10 @@ export class EventTarget {
 
     event.eventPhase = PHASE_NONE;
     event.currentTarget = null;
+    if (useShadow) { // restore from any retargeting
+      event.target = target;
+      if (relatedTarget != null) event.relatedTarget = relatedTarget;
+    }
 
     // canceled activation: undo the pre-click toggle if default was prevented.
     // Otherwise a checkbox/radio toggle fires input then change (activation

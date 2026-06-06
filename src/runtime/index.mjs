@@ -38,13 +38,34 @@ function parseBufferCached(html) {
   return soa;
 }
 
+// Declarative Shadow DOM: promote every `<template shadowrootmode="open|closed">`
+// into a real ShadowRoot on its parent (content moved in, template removed). This
+// is a DOM walk, so it's gated by a cheap substring check on the HTML source in
+// createEnvironment/reset — a document with no declarative shadow root pays
+// nothing (the walk never runs).
+function promoteDeclarativeShadowRoots(document) {
+  for (const tpl of Array.from(document.getElementsByTagName('template'))) {
+    const mode = tpl.getAttribute('shadowrootmode');
+    if (mode !== 'open' && mode !== 'closed') continue;
+    const host = tpl.parentNode;
+    if (!host || host.nodeType !== 1 || host.__shadow) continue;
+    const root = host.attachShadow({ mode, delegatesFocus: tpl.hasAttribute('shadowrootdelegatesfocus') });
+    if (tpl.content) for (const c of tpl.content.__children().slice()) root.appendChild(c);
+    host.removeChild(tpl);
+  }
+}
+
 export function createEnvironment(html = '<!doctype html><html><head></head><body></body></html>', options = {}) {
   // Layer 1: native parse → immutable SoA buffer (typed arrays, one boundary copy).
-  let soa = parseBufferCached(String(html));
+  let currentHtml = String(html);
+  let soa = parseBufferCached(currentHtml);
 
   // Layer 2: Document over the buffer (nodes inflate lazily from the arrays).
   const document = new Document();
+  // declarative shadow roots only when the source even mentions them (cheap gate)
+  const maybePromote = () => { if (currentHtml.includes('shadowroot')) promoteDeclarativeShadowRoots(document); };
   document.__load(soa);
+  maybePromote();
 
   // Layer 3: lazy window.
   const win = createWindow(document, options);
@@ -58,8 +79,9 @@ export function createEnvironment(html = '<!doctype html><html><head></head><bod
     // Layer 5: arena-style reset. Re-point at the (re)parsed buffer, drop the
     // owned overlay + node cache + materialized globals. Class machinery stays warm.
     reset(nextHtml) {
-      if (nextHtml !== undefined) soa = parseBufferCached(String(nextHtml));
+      if (nextHtml !== undefined) { currentHtml = String(nextHtml); soa = parseBufferCached(currentHtml); }
       document.__load(soa);       // drops __cache + __kids overlay, keeps the buffer if reused
+      maybePromote();
       win.resetGlobals();
       document.__active = null;
       document.__cookieJar = null;

@@ -106,35 +106,77 @@ function parseStylesheet(css, startOrder, rules) {
   return order;
 }
 
-function buildIndex(document) {
-  const styles = document.getElementsByTagName('style');
+function buildIndex(scope) {
+  // scope is always a Document or ShadowRoot — both expose getElementsByTagName.
+  const styles = scope.getElementsByTagName('style');
   const rules = [];
   let order = 0;
   for (let i = 0; i < styles.length; i++) order = parseStylesheet(styles[i].textContent || '', order, rules);
   return rules;
 }
 
-function getIndex(doc, v) {
-  const cached = doc.__styleIndex;
+// `scope` is the Document (light DOM) or a ShadowRoot (encapsulated). Both hold
+// their own __styleIndex; the version key is the Document version (shadow style
+// mutations bump it too), so either cache auto-invalidates on any mutation.
+function getIndex(scope, v) {
+  const cached = scope.__styleIndex;
   if (cached && cached.v === v) return cached.rules;
-  const rules = buildIndex(doc);
-  doc.__styleIndex = { v, rules };
+  const rules = buildIndex(scope);
+  scope.__styleIndex = { v, rules };
   return rules;
 }
 
-function resolve(el, rules) {
-  const out = new Map();
-  const matched = [];
+const HOST_RE = /^:host(?:\((.*)\))?$/;        // :host or :host(sel)
+const SLOTTED_RE = /::slotted\(([^)]*)\)/;      // ::slotted(sel)
+
+// Collect rules from one index that apply to `el` under a given `kind`:
+//  'normal'  — el matched against the selector (skips :host/::slotted rules)
+//  'host'    — el is a shadow host; match the inner of a :host[(sel)] rule
+//  'slotted' — el is a slotted light node; match the inner of ::slotted(sel)
+function collectMatched(el, rules, kind, into) {
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
-    try { if (matchesSelector(el, r.selector)) matched.push(r); } catch { /* unsupported selector → skip */ }
+    const sel = r.selector;
+    const hostM = HOST_RE.exec(sel);
+    const slotM = SLOTTED_RE.exec(sel);
+    if (kind === 'normal') {
+      if (hostM || slotM) continue; // shadow-only selectors never match plain elements
+      try { if (matchesSelector(el, sel)) into.push(r); } catch { /* unsupported → skip */ }
+    } else if (kind === 'host') {
+      if (!hostM) continue;
+      const inner = hostM[1];
+      if (inner === undefined) into.push(r);
+      else try { if (matchesSelector(el, inner.trim())) into.push(r); } catch { /* skip */ }
+    } else { // slotted
+      if (!slotM) continue;
+      const inner = (slotM[1] || '*').trim() || '*';
+      try { if (matchesSelector(el, inner)) into.push(r); } catch { /* skip */ }
+    }
   }
+}
+
+// Inheritable properties we propagate across the shadow boundary into shadow
+// content (curated; matches the common inherited set). Honest partial: only
+// these inherit, and only INTO shadow trees — light DOM stays inheritance-free.
+const INHERITED = new Set([
+  'color', 'cursor', 'direction', 'font', 'font-family', 'font-size', 'font-style',
+  'font-variant', 'font-weight', 'letter-spacing', 'line-height', 'list-style',
+  'list-style-type', 'text-align', 'text-indent', 'text-transform', 'visibility',
+  'white-space', 'word-spacing', 'quotes',
+]);
+
+// Flattened-tree parent for inheritance: the DOM parent, hopping shadow-root→host
+// at the boundary; null if there is no element parent.
+function flattenedParent(el) {
+  const p = el.parentNode;
+  if (!p) return null;
+  if (p.__isShadowRoot) return p.host;
+  return p.nodeType === 1 ? p : null;
+}
+
+function applyMatched(matched, out) {
   matched.sort((x, y) => x.spec - y.spec || x.order - y.order);
   for (const r of matched) for (const [k, val] of r.decls) out.set(k, val);
-  // inline style wins over stylesheet rules
-  const inline = el.getAttribute && el.getAttribute('style');
-  if (inline) parseDecls(inline, out);
-  return out;
 }
 
 function lookup(map, prop) {
@@ -172,15 +214,56 @@ function makeProxy(map, v) {
 // getComputedStyle(el): resolves cascade, memoized per element on the current
 // Document.__version (any style/DOM mutation bumps it → cache auto-invalidates).
 export function makeGetComputedStyle() {
-  return (el) => {
+  const gcs = (el) => {
     if (!el) return makeProxy(new Map(), -1);
     const doc = el.ownerDocument;
     const v = doc ? (doc.__version || 0) : 0;
     const cached = el.__computedStyle;
     if (cached && cached.__v === v) return cached;
-    const map = doc ? resolve(el, getIndex(doc, v)) : new Map();
+
+    const map = new Map();
+    if (!doc) { const p = makeProxy(map, v); el.__computedStyle = p; return p; }
+
+    // Encapsulation: an element inside a shadow tree resolves against that
+    // shadow root's own <style> rules, not the document's (and vice-versa).
+    // Gated on __hasShadow so the no-shadow path keeps resolving against doc.
+    let scope = doc, inShadow = false;
+    if (doc.__hasShadow) {
+      const root = el.getRootNode && el.getRootNode();
+      if (root && root.__isShadowRoot) { scope = root; inShadow = true; }
+    }
+
+    const matched = [];
+    collectMatched(el, getIndex(scope, v), 'normal', matched);
+    if (doc.__hasShadow) {
+      // shadow host: overlay :host rules from its OWN shadow root's stylesheet
+      if (el.__shadow) collectMatched(el, getIndex(el.__shadow, v), 'host', matched);
+      // slotted light node: overlay ::slotted rules from the slot's shadow root
+      const slot = el.assignedSlot;
+      if (slot) { const sr = slot.getRootNode(); if (sr.__isShadowRoot) collectMatched(el, getIndex(sr, v), 'slotted', matched); }
+    }
+    applyMatched(matched, map);
+
+    // inline style wins over stylesheet rules
+    const inline = el.getAttribute && el.getAttribute('style');
+    if (inline) parseDecls(inline, map);
+
+    // Inheritance INTO shadow content only: an element inside a shadow tree
+    // inherits unset inheritable props from its flattened parent (crossing the
+    // host boundary). Light-DOM elements stay inheritance-free (honest).
+    if (inShadow) {
+      const parent = flattenedParent(el);
+      if (parent) {
+        const ps = gcs(parent); // recursive, memoized, terminates at the light-DOM host
+        for (const prop of INHERITED) {
+          if (!map.has(prop)) { const pv = ps.getPropertyValue(prop); if (pv) map.set(prop, pv); }
+        }
+      }
+    }
+
     const proxy = makeProxy(map, v);
     el.__computedStyle = proxy;
     return proxy;
   };
+  return gcs;
 }

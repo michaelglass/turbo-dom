@@ -13,7 +13,7 @@ import {
 import { makeGetComputedStyle } from './cascade.mjs';
 import {
   Node, Element, Text, Comment, Document, DocumentFragment, DocumentType, Event, CustomEvent,
-  MutationObserver, DOMParser, XMLSerializer,
+  MutationObserver, DOMParser, XMLSerializer, ShadowRoot,
 } from './dom.mjs';
 import {
   EventTarget,
@@ -244,6 +244,7 @@ function makeXHR() {
 const STATIC_BASE = {
   // DOM + event constructors (cheap class refs)
   Node, Element, Text, Comment, Document, DocumentFragment, DocumentType, EventTarget,
+  ShadowRoot,
   Event, CustomEvent,
   UIEvent, MouseEvent, PointerEvent, KeyboardEvent, InputEvent, FocusEvent,
   CompositionEvent, WheelEvent, TouchEvent, DragEvent, ProgressEvent, ClipboardEvent,
@@ -302,7 +303,7 @@ const STATIC_BASE = {
   HTMLHeadElement: tagClass('head'), HTMLHtmlElement: tagClass('html'),
   HTMLDataElement: tagClass('data'), HTMLTimeElement: tagClass('time'),
   HTMLSlotElement: tagClass('slot'), HTMLMenuElement: tagClass('menu'),
-  HTMLDocument: Document, ShadowRoot: DocumentFragment,
+  HTMLDocument: Document,
   MutationObserver, DOMParser, XMLSerializer,
   URL: TURBO_URL, URLSearchParams,
   Blob: globalThis.Blob, File: TURBO_FILE, FileReader,

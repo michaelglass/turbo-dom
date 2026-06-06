@@ -16,11 +16,18 @@ to be the cost (a later bench). Don't SoA-ify `core.rs`.
 npm run build         # native addon → turbo-dom-parser.<platform>.node + index.js/.d.ts (napi codegen)
 npm run build:wasm    # wasm32 fallback
 npm test              # JS: node --test  (MUST glob: 'test/*.mjs' — `node --test test/` is misparsed on Node 24)
+npm run test:cov      # same suite + coverage gate (runtime lines≥99 / funcs≥87 / branches≥87)
 npm run test:rust     # cargo test --lib  (core unit tests live in src/core.rs #[cfg(test)])
 npm run conformance   # html5lib-tests gate
 ```
 
 Toolchain: Node ≥ 24, Rust stable via rustup (`source $HOME/.cargo/env` if cargo isn't on PATH).
+
+**Pre-commit hook** (`.githooks/pre-commit`, zero-dep — wired via the `prepare` script setting
+`core.hooksPath=.githooks` on `npm install`): runs `npm run test:cov` when `src/`/`test/` is
+staged, so every commit gates tests + coverage + conformance (conformance.test.mjs runs in the
+suite). Bypass with `git commit --no-verify`. Coverage-ignore a truly-unreachable defensive line
+with `/* node:coverage ignore next */` (sparingly) — prefer restructuring or a test.
 
 ## Releasing (`vX.Y.Z`)
 
@@ -69,7 +76,8 @@ lexically and hides `v0.1.10+` below `v0.1.9`).
   element: no `el.classList` (allocates a ClassList + splits), no `Array.find`/`.some`/`.filter`
   closures, no regex, no per-node filtered child arrays. Use the `hasClass`/`elHasClass`
   whole-word string scan, index loops over `__children()`, and the for-loop `getAttribute`.
-  This is what makes query-heavy RTL suites ~6× jsdom; a stray `classList` in a matcher tanks it.
+  This is what makes repeated-query throughput ~2.2× happy-dom / ~460× jsdom; a stray `classList`
+  in a matcher tanks it.
 - **Selector parse cache** (`__selectorCache` in selectors.mjs) memoizes selector STRING → AST.
   Pure (DOM-independent) → no mutation invalidation. Never cache *results* without it.
 
@@ -83,12 +91,12 @@ npm run bench:query     # query-heavy DOM work (RTL-style) vs jsdom
 npm run bench:wasm      # wasm vs native parseBuffer
 npm run bench:all       # all of the above
 ```
-Latest (darwin-arm64, Node 24), vs jsdom / happy-dom:
-- per-file setup: ~23× jsdom, ~10× happy-dom
-- realistic 200-file suite (construct+query+events): ~23× jsdom, ~10× happy-dom
-- parse: 18–37× both
+Latest (darwin-arm64, Node 24, `npm run bench:all`), vs jsdom / happy-dom:
+- cold per-file construct + light query: ~200k ops/s — ~765× jsdom, ~350× happy-dom
+- realistic 200-file suite (construct+query+events): ~0.025 ms/file — ~130× jsdom, ~45× happy-dom
+- parse (parseBuffer): real-page/SSR docs ~8–35× both; small/malformed up to ~75× jsdom
 - conformance: 99.72% vs jsdom 97.03% vs happy-dom 37.35%
-- repeated query throughput: ~915k iters/s — beats happy-dom (~615k) and 277× jsdom.
+- repeated query throughput: ~1.5M iters/s — ~2.2× happy-dom (~680k) and ~460× jsdom.
   querySelectorAll/getElementsBy*/getElementById results are cached per (selector,
   Document.__version); a static querySelectorAll list is safe to reuse until the next
   mutation. cachedQSA/cachedQS + Document.__byTag/__byClass/__idCache.
@@ -108,6 +116,15 @@ Latest (darwin-arm64, Node 24), vs jsdom / happy-dom:
 - **dispatchEvent skips propagation when no listener is on the path.** One ancestor walk builds
   the path AND flags `hasListener`; capture/target/bubble loops run only if true (preClick +
   default actions still run). React fires thousands of listener-less events.
+- **Shadow DOM is pay-for-what-you-use, gated on `Document.__hasShadow`** (set by the first
+  `attachShadow`; armed eagerly for declarative `<template shadowrootmode>` in `index.mjs`, behind
+  a `'shadowroot'` substring check on the HTML). Until then every hot path runs byte-for-byte as
+  before: dispatch takes the flat walk (one predicted-false read), the cascade resolves against the
+  document, `querySelector`/`getElementsBy*` never see shadow content (the host's `__children()`
+  simply doesn't include it — encapsulation is free). Do NOT ungate any of this or move shadow
+  retargeting/scoped-cascade work above the `__hasShadow` branch. `ShadowRoot extends
+  DocumentFragment`; `__isShadowRoot`/`host` are duck-typed so events.mjs needs no dom.mjs import.
+  Slots/`assignedNodes`/`:host`/`::slotted`/inheritance are all computed on demand (test-time only).
 - **Cache invalidation = Document.__version.** EVERY mutation must bump it: notifyMutation
   bumps it unconditionally (insert/remove/setAttribute), and __touch() covers direct __kids
   rewrites (innerHTML/textContent/replaceChildren). If you add a new mutation path that
@@ -119,7 +136,7 @@ Numbers in README.md — refresh both (bench against jsdom AND happy-dom) if you
 - **Parse memoization (index.mjs `parseBufferCached`).** The SoA buffer is READ-ONLY — every
   mutation goes to a Document's own `__kids`/`__attrs`/`__cache` overlay, never the buffer — so
   the same buffer backs many Documents. Suites call setup with the same shell HTML per file →
-  parsed once, reused (near-free createEnvironment). Realistic suite ~40× happy-dom / ~120× jsdom.
+  parsed once, reused (near-free createEnvironment). Realistic suite ~45× happy-dom / ~130× jsdom.
   If you ever write THROUGH to the buffer typed arrays, this breaks — don't.
 - **Lazy attrs.** Buffer-backed elements leave `__attrs` undefined + store `__attrIdx`; the array
   builds from the SoA on first attribute touch (`__buildAttrs`, guarded by `?? (this.__attrs = …)`).
