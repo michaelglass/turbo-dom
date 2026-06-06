@@ -717,7 +717,12 @@ export class Element extends Node {
   cloneNode(deep = false) {
     const el = new Element(this.ownerDocument, this.localName, this.__ns);
     el.__attrs = (this.__attrs ?? (this.__attrs = this.__buildAttrs())).map((a) => ({ ...a }));
-    if (deep) for (const c of this.__children()) el.appendChild(c.cloneNode(true));
+    if (deep) {
+      // build the cloned child array directly — the clone is detached, so per-child
+      // appendChild's notifyMutation (version bump) + reparent check are pure waste.
+      const src = this.__children(), od = el.ownerDocument, kids = el.__kids = new Array(src.length);
+      for (let i = 0; i < src.length; i++) { const cl = src[i].cloneNode(true); cl.parentNode = el; cl.ownerDocument = od; kids[i] = cl; }
+    }
     return el;
   }
 
