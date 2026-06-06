@@ -150,7 +150,7 @@ export class Node extends EventTarget {
     if (ref) kids.splice(i, 0, node); else kids.push(node);
     node.parentNode = this;
     node.ownerDocument = this.ownerDocument;
-    notifyMutation(this, { type: 'childList', target: this, addedNodes: [node], removedNodes: [], nextSibling: ref || null });
+    notifyMutation(this, 'childList', node, null, ref || null);
     return node;
   }
 
@@ -161,7 +161,7 @@ export class Node extends EventTarget {
     const next = kids[i + 1] || null;
     kids.splice(i, 1);
     node.parentNode = null;
-    notifyMutation(this, { type: 'childList', target: this, addedNodes: [], removedNodes: [node], nextSibling: next });
+    notifyMutation(this, 'childList', null, node, next);
     return node;
   }
 
@@ -216,7 +216,7 @@ export class Node extends EventTarget {
     }
     // normalize mutates __kids in place — bump __version (invalidate cached queries)
     // and feed MutationObservers, like every other childList mutation path.
-    if (changed) notifyMutation(this, { type: 'childList', target: this, addedNodes: [], removedNodes: [], nextSibling: null });
+    if (changed) notifyMutation(this, 'childList', null, null, null);
   }
   replaceChildren(...nodes) { this.__kids = []; this.__touch(); for (const n of nodes) this.appendChild(typeof n === 'string' ? this.ownerDocument.createTextNode(n) : n); }
   // bitmask: 1 DISCONNECTED, 2 PRECEDING, 4 FOLLOWING, 8 CONTAINS, 16 CONTAINED_BY
@@ -282,7 +282,7 @@ Object.assign(Node.prototype, {
 class CharacterData extends Node {
   constructor(ownerDocument, data) { super(ownerDocument); this._data = data ?? ''; }
   get data() { return this._data; }
-  set data(v) { const old = this._data; this._data = String(v); notifyMutation(this, { type: 'characterData', target: this, oldValue: old, addedNodes: [], removedNodes: [] }); }
+  set data(v) { const old = this._data; this._data = String(v); notifyMutation(this, 'characterData', null, null, null, null, old); }
   get nodeValue() { return this._data; }
   set nodeValue(v) { this.data = v; }
   get length() { return this._data.length; }
@@ -407,14 +407,14 @@ export class Element extends Node {
     const old = a ? a.value : null;
     if (a) a.value = String(value);
     else this.__attrs.push({ name, value: String(value), prefix: '' });
-    notifyMutation(this, { type: 'attributes', target: this, attributeName: name, oldValue: old, addedNodes: [], removedNodes: [] });
+    notifyMutation(this, 'attributes', null, null, null, name, old);
   }
   removeAttribute(name) {
     if (!this.__ns) name = ('' + name).toLowerCase();
     if (this.__attrs === undefined) this.__attrs = this.__buildAttrs();
     const a = this.__attrs.find((x) => x.name === name);
     this.__attrs = this.__attrs.filter((x) => x.name !== name);
-    if (a) notifyMutation(this, { type: 'attributes', target: this, attributeName: name, oldValue: a.value, addedNodes: [], removedNodes: [] });
+    if (a) notifyMutation(this, 'attributes', null, null, null, name, a.value);
   }
   toggleAttribute(name, force) {
     const has = this.hasAttribute(name);
@@ -1303,29 +1303,38 @@ function isDescendant(node, ancestor) {
   while (n) { if (n === ancestor) return true; n = n.parentNode; }
   return false;
 }
-function notifyMutation(target, record) {
+const EMPTY_NODES = []; // shared read-only addedNodes/removedNodes for empty records
+
+// Mutation notification — takes primitives (a single added/removed node, etc) so
+// the common case (no MutationObservers — most test files) allocates NOTHING: it
+// only bumps __version and returns. The MutationRecord object + its node arrays
+// are built solely when an observer is actually registered.
+function notifyMutation(target, type, added, removed, nextSibling, attributeName, oldValue) {
   const doc = target.ownerDocument;
   if (!doc) return;
   // bump the DOM version on every structural/attribute mutation — invalidates
   // the document's getElementsBy* caches. Unconditional (independent of observers).
   doc.__version = (doc.__version || 0) + 1;
-  if (!doc.__mo || doc.__mo.length === 0) return;
-  for (const reg of doc.__mo) {
+  const mo = doc.__mo;
+  if (!mo || mo.length === 0) return;
+  const addedNodes = added ? [added] : EMPTY_NODES;
+  const removedNodes = removed ? [removed] : EMPTY_NODES;
+  for (const reg of mo) {
     const { obs, target: obsTarget, options } = reg;
-    const onTarget = record.target === obsTarget;
-    const inSubtree = options.subtree && isDescendant(record.target, obsTarget);
+    const onTarget = target === obsTarget;
+    const inSubtree = options.subtree && isDescendant(target, obsTarget);
     if (!onTarget && !inSubtree) continue;
-    if (record.type === 'childList' && !options.childList) continue;
-    if (record.type === 'attributes' && !options.attributes) continue;
-    if (record.type === 'attributes' && options.attributeFilter && !options.attributeFilter.includes(record.attributeName)) continue;
-    if (record.type === 'characterData' && !options.characterData) continue;
+    if (type === 'childList' && !options.childList) continue;
+    if (type === 'attributes' && !options.attributes) continue;
+    if (type === 'attributes' && options.attributeFilter && !options.attributeFilter.includes(attributeName)) continue;
+    if (type === 'characterData' && !options.characterData) continue;
     const rec = {
-      type: record.type, target: record.target,
-      addedNodes: record.addedNodes || [], removedNodes: record.removedNodes || [],
-      previousSibling: record.previousSibling || null, nextSibling: record.nextSibling || null,
-      attributeName: record.attributeName || null, attributeNamespace: null,
-      oldValue: (record.type === 'attributes' && options.attributeOldValue) ||
-                (record.type === 'characterData' && options.characterDataOldValue) ? (record.oldValue ?? null) : null,
+      type, target,
+      addedNodes, removedNodes,
+      previousSibling: null, nextSibling: nextSibling || null,
+      attributeName: attributeName || null, attributeNamespace: null,
+      oldValue: (type === 'attributes' && options.attributeOldValue) ||
+                (type === 'characterData' && options.characterDataOldValue) ? (oldValue ?? null) : null,
     };
     obs.__enqueue(rec);
     doc.__scheduleMO(obs);
