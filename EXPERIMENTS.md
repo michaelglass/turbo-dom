@@ -194,3 +194,5 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - DITCHED — installGlobals value-descriptors for base+STATIC_BASE (vs lazy getters): SLOWER (19.5-19.9k vs 22.3-22.6k ops/s). Value descriptors must read window[name] for all ~80 globals AT INSTALL, forcing resolution of globals tests never touch; lazy getters defer to actual access (tests use ~10) → lazy wins despite closure allocs. The lazy-window deferral is optimal for the access pattern.
 | v0.1.45 | 47.9s ✓<50 | 93.6s | lazy customElements (+5% createEnvironment) |
 - v0.1.45 — lazy customElements registry (eager makeCustomElements → SHARED_LAZY) — SHIPPED (+5% createEnvironment; uidc 47.9s ✓, payroll 93.6s; both green). Env-bucket win, env-independent factory fresh-per-env on access.
+| v0.1.46 | 49.9s (loaded) | 101.0s (loaded) | lazy window.origin (+18% createEnvironment) |
+- v0.1.46 — lazy window.origin (eager new URL(url) → per-env lazy) — SHIPPED (+18% createEnvironment, biggest env win; suites green, wall load-noisy this run). URL parse is heavy; deferring it for the common non-origin-reading test is a big per-file env-bucket cut.
