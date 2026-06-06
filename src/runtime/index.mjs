@@ -23,11 +23,14 @@ export * from './dom.mjs';
 // native parse + boundary marshaling entirely. Bounded (fixtures are few).
 const __parseCache = new Map();
 const __PARSE_CACHE_MAX = 64;
+let __parseCacheMRU; // last (most-recently-used) key — skip the LRU re-insert when unchanged
 function parseBufferCached(html) {
   const hit = __parseCache.get(html);
   if (hit !== undefined) {
-    // LRU bump: re-insert so this entry is now most-recently-used (Map keeps order)
-    __parseCache.delete(html); __parseCache.set(html, hit);
+    // LRU bump: re-insert so this entry is most-recently-used (Map keeps order).
+    // Skip the delete+set entirely when this key is ALREADY the MRU — the common
+    // case for a suite that reuses one shell HTML across every file.
+    if (html !== __parseCacheMRU) { __parseCache.delete(html); __parseCache.set(html, hit); __parseCacheMRU = html; }
     return hit;
   }
   const soa = native.parseBuffer(html);
@@ -35,6 +38,7 @@ function parseBufferCached(html) {
   // shells should keep its hot fixtures warm, not thrash every one cold on overflow.
   if (__parseCache.size >= __PARSE_CACHE_MAX) __parseCache.delete(__parseCache.keys().next().value);
   __parseCache.set(html, soa);
+  __parseCacheMRU = html;
   return soa;
 }
 
