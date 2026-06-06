@@ -205,3 +205,5 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - v0.1.48 — version-cache children element-filter (was re-filtered per access) — SHIPPED (+58% children access; uidc 48.0s, payroll 87.0s lowest; both green). First tests-bucket win; live via Document.__version key.
 | v0.1.49 | 47.5s ✓<50 | 91.0s (loaded) | shared element-child version-cache (childElementCount/first/last ~18×) |
 - v0.1.49 — share version-cached element-child array across children/childElementCount/first/last (was re-filter per access) — SHIPPED (~18× on count/first/last microbench; uidc 47.5s best, payroll 91.0s loaded; both green). Extends v0.1.48 pattern.
+| v0.1.50 | 48.9s ✓<50 | 95.3s (loaded) | version-cache Element/ShadowRoot getElementsBy* (~2.7× reused) |
+- v0.1.50 — version-cache Element/ShadowRoot getElementsByTagName/ClassName subtree walks (closure-local, per collection) — SHIPPED (~2.7× reused-collection microbench; both suites green). Document versions were already cached; this extends to scoped collections.
