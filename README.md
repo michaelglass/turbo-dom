@@ -14,7 +14,7 @@ npm install -D @miaskiewicz/turbo-dom
 
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
   Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
-- ⚡ **Faster than both** — ~130× jsdom / ~45× happy-dom on a realistic suite (parse-memoized repeated shells), ~8–35× faster HTML parsing on real pages, and ~2.2× happy-dom on repeated queries while staying 99.7% spec-correct.
+- ⚡ **Faster than both** — ~130× jsdom / ~45× happy-dom on a realistic suite (parse-memoized repeated shells), ~8–44× faster HTML parsing on real pages, and ~2.7× happy-dom on repeated queries while staying 99.7% spec-correct.
 - 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros.
   `getComputedStyle` runs a **partial cascade**: it resolves real injected `<style>` rules
   (emotion/MUI `.css-HASH{…}`) + inline styles with proper specificity/source order — but only
@@ -109,16 +109,16 @@ the suite row (ms/file, lower = faster):
 
 | benchmark | turbo-dom | happy-dom | jsdom |
 |---|---:|---:|---:|
-| **realistic suite**, 200 files (ms/file) | **~0.025** | 1.13 | 3.40 |
-| **cold per-file construct + query** (ops/s) | **~200k** | 579 | 266 |
-| **parse 56 KB SSR** (ops/s) | **510** | 48 | 66 |
-| **parse 20 KB real page** (ops/s) | **3,628** | 161 | 105 |
-| repeated query throughput (iters/s) | **~1.5M** | 680k | 3.3k |
+| **realistic suite**, 200 files (ms/file) | **~0.025** | 1.08 | 3.20 |
+| **cold per-file construct + query** (ops/s) | **~230k** | 575 | 267 |
+| **parse 56 KB SSR** (ops/s) | **528** | 48 | 65 |
+| **parse 20 KB real page** (ops/s) | **4,353** | 135 | 99 |
+| repeated query throughput (iters/s) | **~1.8M** | 661k | 3.3k |
 | html5lib conformance | **99.72%** | 37.35% | 97.03% |
 
 On a realistic suite — 200 files of construct + queries + events — turbo-dom is
-**~45× happy-dom and ~130× jsdom**, runs repeated queries **~2.2× happy-dom**
-(~460× jsdom), and parses real pages/SSR documents **~8–35×** faster, all at 99.7%
+**~45× happy-dom and ~130× jsdom**, runs repeated queries **~2.7× happy-dom**
+(~550× jsdom), and parses real pages/SSR documents **~8–44×** faster, all at 99.7%
 conformance.
 
 The per-file setup number is so high because the parser **memoizes the read-only
