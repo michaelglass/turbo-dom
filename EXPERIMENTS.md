@@ -235,3 +235,7 @@ Roughly ordered by expected value. Each must go through the full protocol.
 - KPI DATA POINT @v0.1.53 (no code change): uidc 46.6s ✓, payroll 74.9s ✓ — BOTH under target on quiet machine. payroll confirmed dips <75 on quiet runs (74.9-75.7); 80.8 was a loaded run. KPI met when machine quiet; load-variance is vitest-import-bound, not turbo-dom.
 - AUDIT (no ship) — Text.splitText/wholeText: cold (text-manipulation, ~never in React/RTL render-assert flow); not hot-path. No further low-risk turbo-dom wins identified. KPI both met (uidc 46.6 / payroll 74.9 quiet). Idle plateau confirmatory.
 | v0.1.53 (re-run 3) | 46.1s ✓ | **73.5s** ✓<75 best | KPI point — both met, payroll best |
+
+## Rust layer (post-JS-plateau)
+Baseline @HEAD (parse-ab.mjs best-of-6): REAL 150-cards ~1,617 ops/s, ATTR 120-inputs ~2,271 ops/s. Pack is small tail of parse (html5ever+walk+intern dominate); suites are parse-CACHED so Rust wins show in parse microbench, suites = no-regression gate.
+- DITCHED idea1 — bulk-copy pack columns (unsafe from_raw_parts LE-cast vs per-value to_le_bytes loop): back-to-back A/B REAL +0.7% but ATTR overlaps (HEAD 2291 > new 2279), not every-run-beats. Pack too small a fraction of total parse → negligible. Reverted (no dep, no unsafe added).
