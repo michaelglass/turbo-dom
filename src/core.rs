@@ -261,10 +261,12 @@ pub fn parse_html_soa(html: &str) -> Soa {
         .expect("RcDom read_from is infallible over a byte slice");
     let mut b = SoaBuilder {
         soa: Soa::default(),
-        tag_map: rustc_hash::FxHashMap::default(),
-        attr_name_map: rustc_hash::FxHashMap::default(),
-        attr_prefix_map: rustc_hash::FxHashMap::default(),
-        attr_value_map: rustc_hash::FxHashMap::default(),
+        // pre-reserve typical intern-table sizes so the build loop doesn't rehash:
+        // tag/attr-name sets are small + bounded; values vary more.
+        tag_map: rustc_hash::FxHashMap::with_capacity_and_hasher(32, Default::default()),
+        attr_name_map: rustc_hash::FxHashMap::with_capacity_and_hasher(64, Default::default()),
+        attr_prefix_map: rustc_hash::FxHashMap::with_capacity_and_hasher(8, Default::default()),
+        attr_value_map: rustc_hash::FxHashMap::with_capacity_and_hasher(128, Default::default()),
     };
     b.alloc(&dom.document, -1);
     b.soa
