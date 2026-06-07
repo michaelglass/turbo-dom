@@ -101,10 +101,10 @@ pub struct Soa {
 
 struct SoaBuilder {
     soa: Soa,
-    tag_map: std::collections::HashMap<String, u32>,
-    attr_name_map: std::collections::HashMap<String, u32>,
-    attr_prefix_map: std::collections::HashMap<String, u32>,
-    attr_value_map: std::collections::HashMap<String, u32>,
+    tag_map: rustc_hash::FxHashMap<String, u32>,
+    attr_name_map: rustc_hash::FxHashMap<String, u32>,
+    attr_prefix_map: rustc_hash::FxHashMap<String, u32>,
+    attr_value_map: rustc_hash::FxHashMap<String, u32>,
 }
 
 impl SoaBuilder {
@@ -261,10 +261,10 @@ pub fn parse_html_soa(html: &str) -> Soa {
         .expect("RcDom read_from is infallible over a byte slice");
     let mut b = SoaBuilder {
         soa: Soa::default(),
-        tag_map: std::collections::HashMap::new(),
-        attr_name_map: std::collections::HashMap::new(),
-        attr_prefix_map: std::collections::HashMap::new(),
-        attr_value_map: std::collections::HashMap::new(),
+        tag_map: rustc_hash::FxHashMap::default(),
+        attr_name_map: rustc_hash::FxHashMap::default(),
+        attr_prefix_map: rustc_hash::FxHashMap::default(),
+        attr_value_map: rustc_hash::FxHashMap::default(),
     };
     b.alloc(&dom.document, -1);
     b.soa
