@@ -11,6 +11,7 @@ import {
   makeLocation, makeHistory,
 } from './stubs.mjs';
 import { makeGetComputedStyle } from './cascade.mjs';
+import { CSSStyleSheet } from './cssom.mjs';
 import {
   Node, Element, Text, Comment, Document, DocumentFragment, DocumentType, Event, CustomEvent,
   MutationObserver, DOMParser, XMLSerializer, ShadowRoot,
@@ -205,16 +206,33 @@ function performanceNow() {
   return nodePerformance.now();
 }
 
+// Resolve the host base classes ONCE, with minimal fallbacks so turbo-dom loads &
+// runs in a bare V8 lacking web-platform globals. Where the platform provides the
+// real class (Node/browser) we extend it and keep full behavior; the fallbacks are
+// only enough to not throw at load and to round-trip the few fields turbo-dom uses.
+// Embedders wanting full URL parsing / Blob semantics should still polyfill the
+// host globals — these are honest minimums, not a spec implementation.
+const URLBase = typeof URL !== 'undefined' ? URL : class URL {
+  constructor(url, base) { this.href = base ? `${base}${url}` : String(url); }
+  toString() { return this.href; }
+  get origin() { return ''; }
+};
+const BlobBase = typeof globalThis.Blob !== 'undefined' ? globalThis.Blob : class Blob {
+  constructor(parts = [], opts = {}) { this.__parts = parts; this.type = opts.type || ''; this.size = 0; }
+  async text() { return (this.__parts || []).join(''); }
+  async arrayBuffer() { return new ArrayBuffer(0); }
+  slice() { return new BlobBase(); }
+};
+
 let __objUrlSeq = 0;
 function makeURL() {
-  class TurboURL extends URL {}
+  class TurboURL extends URLBase {}
   TurboURL.createObjectURL = () => `blob:turbo-dom/${++__objUrlSeq}`;
   TurboURL.revokeObjectURL = () => {};
   return TurboURL;
 }
 function makeFile() {
-  const B = globalThis.Blob;
-  return class File extends B {
+  return class File extends BlobBase {
     constructor(bits = [], name = 'file', opts = {}) { super(bits, opts); this.name = String(name); this.lastModified = opts.lastModified || 0; }
   };
 }
@@ -317,9 +335,9 @@ const STATIC_BASE = {
   HTMLDataElement: tagClass('data'), HTMLTimeElement: tagClass('time'),
   HTMLSlotElement: tagClass('slot'), HTMLMenuElement: tagClass('menu'),
   HTMLDocument: Document,
-  MutationObserver, DOMParser, XMLSerializer,
-  URL: TURBO_URL, URLSearchParams,
-  Blob: globalThis.Blob, File: TURBO_FILE, FileReader,
+  MutationObserver, DOMParser, XMLSerializer, CSSStyleSheet,
+  URL: TURBO_URL, URLSearchParams: typeof URLSearchParams !== 'undefined' ? URLSearchParams : undefined,
+  Blob: BlobBase, File: TURBO_FILE, FileReader,
   AbortController: globalThis.AbortController, AbortSignal: globalThis.AbortSignal,
   TextEncoder: globalThis.TextEncoder, TextDecoder: globalThis.TextDecoder,
   fetch: globalThis.fetch ? (...a) => globalThis.fetch(...a) : undefined,

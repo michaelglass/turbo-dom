@@ -14,6 +14,7 @@ import {
 import { liveNodeList, liveHTMLCollection } from './collections.mjs';
 import { matchesSelector, querySelector as qsel, querySelectorAll as qselAll } from './selectors.mjs';
 import { serializeInner, serializeOuter } from './html-serialize.mjs';
+import { CSSStyleSheet, styleSheetList } from './cssom.mjs';
 
 // Per-node query-result cache keyed by (selector, document version). querySelectorAll
 // returns a STATIC list per spec, so caching is safe until the next mutation bumps
@@ -376,6 +377,7 @@ export class Element extends Node {
     this.__qsCache = undefined;        // querySelector cache
     this.__computedStyle = undefined;  // getComputedStyle snapshot (version-keyed)
     this.__shadow = undefined;         // attached shadow root (open or closed)
+    this.__sheet = undefined;          // CSSOM CSSStyleSheet for <style> (lazy, CSS-in-JS)
   }
 
   get nodeType() { return ELEMENT_NODE; }
@@ -471,6 +473,16 @@ export class Element extends Node {
   get dataset() {
     if (!this.__dataset) this.__dataset = makeDataset(this);
     return this.__dataset;
+  }
+
+  // CSSOM seam for CSS-in-JS (emotion/styled-components/MUI): a <style> exposes a
+  // CSSStyleSheet so engines can insertRule() at runtime. Created lazily on first
+  // read (only emotion-touched <style>s ever get one), so plain documents pay
+  // nothing. Rules inserted here flow into the cascade via cascade.mjs reading
+  // this.__sheet. Non-<style> elements have no sheet (null), matching the platform.
+  get sheet() {
+    if (this.localName !== 'style') return null;
+    return this.__sheet ?? (this.__sheet = new CSSStyleSheet(this));
   }
 
   // ---- form-control properties (on the prototype so libraries that read
@@ -1539,6 +1551,16 @@ export class Document extends Node {
   get body() { const html = this.documentElement; return html ? html.__children().find((n) => n.localName === 'body') ?? null : null; }
   get activeElement() { return this.__active || this.body || null; }
   __setActive(el) { this.__active = el; }
+
+  // Live StyleSheetList. emotion iterates this to find its own <style>'s sheet by
+  // ownerNode. Touching `.sheet` here lazily creates a CSSStyleSheet per <style>
+  // (test-time only — never on parse/query paths).
+  get styleSheets() {
+    const styles = this.getElementsByTagName('style');
+    const sheets = [];
+    for (let i = 0; i < styles.length; i++) sheets.push(styles[i].sheet);
+    return styleSheetList(sheets);
+  }
 
   // ---- factories (owned nodes, no buffer) ----
   createElement(tag) { return new Element(this, String(tag).toLowerCase(), ''); }

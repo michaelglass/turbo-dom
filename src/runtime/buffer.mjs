@@ -42,7 +42,27 @@ export function unpack(soa) {
     tagNames, attrNames, attrPrefixes, attrValues, strings,
   };
 }
-const STR_DECODER = new TextDecoder();
+// Decode the UTF-8 string blob. Prefer the platform TextDecoder (Node/browser);
+// fall back to a tiny inline UTF-8 decoder so turbo-dom loads in a bare V8 with no
+// web-platform globals (the native/Node path keeps using the real TextDecoder —
+// this branch is never taken there).
+export function utf8Decode(bytes) {
+  let out = '', i = 0;
+  const n = bytes.length;
+  while (i < n) {
+    const c = bytes[i++];
+    if (c < 0x80) out += String.fromCharCode(c);
+    else if (c < 0xe0) out += String.fromCharCode(((c & 0x1f) << 6) | (bytes[i++] & 0x3f));
+    else if (c < 0xf0) out += String.fromCharCode(((c & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f));
+    else {
+      let cp = ((c & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+      cp -= 0x10000;
+      out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+    }
+  }
+  return out;
+}
+const STR_DECODER = typeof TextDecoder !== 'undefined' ? new TextDecoder() : { decode: utf8Decode };
 
 export class Buffer {
   constructor(soa) {

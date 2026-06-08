@@ -16,7 +16,7 @@ to be the cost (a later bench). Don't SoA-ify `core.rs`.
 npm run build         # native addon → turbo-dom-parser.<platform>.node + index.js/.d.ts (napi codegen)
 npm run build:wasm    # wasm32 fallback
 npm test              # JS: node --test  (MUST glob: 'test/*.mjs' — `node --test test/` is misparsed on Node 24)
-npm run test:cov      # same suite + coverage gate (runtime lines≥99 / funcs≥87 / branches≥87)
+npm run test:cov      # same suite + coverage gate (runtime lines≥99 / funcs≥92 / branches≥88)
 npm run test:rust     # cargo test --lib  (core unit tests live in src/core.rs #[cfg(test)])
 npm run conformance   # html5lib-tests gate
 ```

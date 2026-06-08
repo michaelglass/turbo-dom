@@ -1,6 +1,6 @@
 {
   "name": "@miaskiewicz/turbo-dom",
-  "version": "0.1.58",
+  "version": "0.1.59",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "license": "MIT",
   "main": "index.js",
@@ -17,6 +17,12 @@
     },
     "./environment/vitest": {
       "import": "./src/environment/vitest.mjs"
+    },
+    "./environment/install": {
+      "import": "./src/environment/install.mjs"
+    },
+    "./install": {
+      "import": "./src/environment/install.mjs"
     },
     "./jest": {
       "require": "./src/environment/jest.cjs"
@@ -60,7 +66,7 @@
     "build:wasm": "cargo build --release --no-default-features --features wasm-bind --target wasm32-unknown-unknown",
     "build:wasm:pkg": "wasm-pack build --target nodejs --out-dir pkg --no-default-features --features wasm-bind",
     "test": "node --test 'test/*.mjs'",
-    "test:cov": "node --test --experimental-test-coverage --test-coverage-include='src/runtime/**' --test-coverage-lines=99 --test-coverage-functions=87 --test-coverage-branches=87 'test/*.mjs'",
+    "test:cov": "node --test --experimental-test-coverage --test-coverage-include='src/runtime/**' --test-coverage-lines=99 --test-coverage-functions=92 --test-coverage-branches=88 'test/*.mjs'",
     "test:rust": "cargo test --lib",
     "test:all": "npm run build && npm run test:rust && npm test",
     "prepare": "git config core.hooksPath .githooks || true",
