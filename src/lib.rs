@@ -82,11 +82,14 @@ mod napi_front {
         pub packed: Uint8Array,
         pub n: u32,
         pub m: u32,
-        pub tag_names: Vec<String>,
-        pub attr_names: Vec<String>,
-        pub attr_prefixes: Vec<String>,
-        pub attr_values: Vec<String>,
-        pub strings: Vec<String>,
+        // The five string tables (tag_names, attr_names, attr_prefixes, attr_values,
+        // strings) are shipped as ONE raw UTF-8 byte blob + a meta array, NOT as
+        // Vec<String>. Vec<String> forces napi to UTF-8→UTF-16 convert every string
+        // at the boundary (~12% of parse, even for strings a test never reads). The
+        // blob crosses with zero conversion; JS decodes once, lazily, in unpack().
+        // str_meta = [count0..count4, then every string's byte length in table order].
+        pub str_blob: Uint8Array,
+        pub str_meta: Uint32Array,
     }
 
     impl From<core::Soa> for JsSoa {
@@ -104,15 +107,27 @@ mod napi_front {
             for v in s.attr_count.iter() { buf.extend_from_slice(&v.to_le_bytes()); }
             buf.extend_from_slice(&s.node_type);
             buf.extend_from_slice(&s.ns);
+            // pack all five string tables into one byte blob + meta (5 counts, then
+            // per-string byte lengths in table order). Zero napi string conversion.
+            let tables: [&Vec<String>; 5] =
+                [&s.tag_names, &s.attr_names, &s.attr_prefixes, &s.attr_values, &s.strings];
+            let total_strs: usize = tables.iter().map(|t| t.len()).sum();
+            let total_bytes: usize = tables.iter().flat_map(|t| t.iter()).map(|x| x.len()).sum();
+            let mut str_blob: Vec<u8> = Vec::with_capacity(total_bytes);
+            let mut str_meta: Vec<u32> = Vec::with_capacity(5 + total_strs);
+            for t in &tables { str_meta.push(t.len() as u32); }
+            for t in &tables {
+                for x in t.iter() {
+                    str_meta.push(x.len() as u32);
+                    str_blob.extend_from_slice(x.as_bytes());
+                }
+            }
             JsSoa {
                 packed: Uint8Array::new(buf),
                 n: n as u32,
                 m: m as u32,
-                tag_names: s.tag_names,
-                attr_names: s.attr_names,
-                attr_prefixes: s.attr_prefixes,
-                attr_values: s.attr_values,
-                strings: s.strings,
+                str_blob: Uint8Array::new(str_blob),
+                str_meta: Uint32Array::new(str_meta),
             }
         }
     }

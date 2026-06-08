@@ -37,11 +37,8 @@ export interface JsSoa {
   packed: Uint8Array
   n: number
   m: number
-  tagNames: Array<string>
-  attrNames: Array<string>
-  attrPrefixes: Array<string>
-  attrValues: Array<string>
-  strings: Array<string>
+  strBlob: Uint8Array
+  strMeta: Uint32Array
 }
 /** Parse a document into the SoA flat buffer (the fast runtime path). */
 export declare function parseBuffer(html: string): JsSoa

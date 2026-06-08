@@ -19,13 +19,30 @@ export function unpack(soa) {
   const attrCount = new Uint16Array(ab, off, n); off += n * 2;
   const nodeType = new Uint8Array(ab, off, n); off += n;
   const ns = new Uint8Array(ab, off, n); off += n;
+  // Decode the five string tables from the raw byte blob (one pass per string),
+  // done ONCE here per cached parse. The native side ships bytes with no per-string
+  // napi UTF-8→UTF-16 conversion; the accessors below read plain arrays (hot path
+  // unchanged). meta = [5 counts, then every string's byte length in table order].
+  const meta = soa.strMeta, blob = soa.strBlob;
+  let mi = 5, bo = 0;
+  const table = (count) => {
+    const arr = new Array(count);
+    for (let k = 0; k < count; k++) {
+      const len = meta[mi++];
+      arr[k] = len === 0 ? '' : STR_DECODER.decode(blob.subarray(bo, bo + len));
+      bo += len;
+    }
+    return arr;
+  };
+  const tagNames = table(meta[0]), attrNames = table(meta[1]), attrPrefixes = table(meta[2]),
+    attrValues = table(meta[3]), strings = table(meta[4]);
   return {
     nodeType, ns, tagId, parent, firstChild, nextSib, textId, pubId, sysId,
     attrStart, attrCount, attrNameId, attrValueId, attrPrefixId,
-    tagNames: soa.tagNames, attrNames: soa.attrNames, attrPrefixes: soa.attrPrefixes,
-    attrValues: soa.attrValues, strings: soa.strings,
+    tagNames, attrNames, attrPrefixes, attrValues, strings,
   };
 }
+const STR_DECODER = new TextDecoder();
 
 export class Buffer {
   constructor(soa) {
