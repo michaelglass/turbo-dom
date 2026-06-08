@@ -20,7 +20,7 @@ pub const DOCUMENT_NODE: u8 = 9;
 pub const DOCUMENT_TYPE_NODE: u8 = 10;
 pub const DOCUMENT_FRAGMENT_NODE: u8 = 11;
 
-#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize))]
+#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize), serde(rename_all = "camelCase"))]
 #[derive(Debug, Clone)]
 pub struct Attr {
     pub name: String,
@@ -30,7 +30,7 @@ pub struct Attr {
 }
 
 /// One marshaled DOM node. Nested children = complete tree, no lazy indices.
-#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize))]
+#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize), serde(rename_all = "camelCase"))]
 #[derive(Debug, Clone)]
 pub struct Node {
     /// DOM nodeType.
@@ -73,7 +73,7 @@ pub fn parse_html_document(html: &str) -> Node {
 // the arrays and inflates node objects only on access (no eager full-tree alloc).
 
 /// Index-addressed flat tree. Node index IS its id; node 0 is the document.
-#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize))]
+#[cfg_attr(feature = "wasm-bind", derive(serde::Serialize), serde(rename_all = "camelCase"))]
 #[derive(Default)]
 pub struct Soa {
     pub node_type: Vec<u8>,    // DOM nodeType

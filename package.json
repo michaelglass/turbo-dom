@@ -1,6 +1,6 @@
 {
   "name": "@miaskiewicz/turbo-dom",
-  "version": "0.1.57",
+  "version": "0.1.58",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "license": "MIT",
   "main": "index.js",
@@ -27,6 +27,10 @@
     "index.js",
     "index.d.ts",
     "*.node",
+    "pkg/turbo_dom_parser.js",
+    "pkg/turbo_dom_parser.d.ts",
+    "pkg/turbo_dom_parser_bg.wasm",
+    "pkg/turbo_dom_parser_bg.wasm.d.ts",
     "src/**/*.mjs",
     "src/**/*.cjs",
     "src/**/*.d.ts",
@@ -51,7 +55,7 @@
     }
   },
   "scripts": {
-    "build": "napi build --platform --release",
+    "build": "napi build --platform --release && npm run build:wasm:pkg",
     "build:debug": "napi build --platform",
     "build:wasm": "cargo build --release --no-default-features --features wasm-bind --target wasm32-unknown-unknown",
     "build:wasm:pkg": "wasm-pack build --target nodejs --out-dir pkg --no-default-features --features wasm-bind",
@@ -67,7 +71,7 @@
     "bench:suite": "node bench/suite.mjs",
     "bench:wasm": "node bench/wasm.mjs",
     "bench:all": "node bench/parse.mjs && node bench/construct.mjs && node bench/suite.mjs && node bench/query.mjs && node bench/wasm.mjs",
-    "prepublishOnly": "napi build --platform --release",
+    "prepublishOnly": "napi build --platform --release && npm run build:wasm:pkg",
     "test:vitest": "vitest run -c test-vitest/vitest.config.mjs",
     "test:jest": "jest -c test-jest/jest.config.cjs",
     "bench:query": "node bench/query.mjs",

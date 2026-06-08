@@ -6,7 +6,7 @@
 // Mutation promotes the affected node to fully-owned (COW). Reads are transparent
 // across the boundary — a buffer-backed read and an owned read are indistinguishable.
 
-import { createRequire } from 'node:module';
+import native from './parser.mjs';
 import {
   EventTarget, Event, CustomEvent,
   UIEvent, MouseEvent, KeyboardEvent, FocusEvent,
@@ -55,9 +55,6 @@ function cachedQS(node, sel) {
 }
 import { Buffer } from './buffer.mjs';
 import { makeCanvasStub } from './stubs.mjs';
-
-const require = createRequire(import.meta.url);
-const native = require('../../index.js');
 
 export const ELEMENT_NODE = 1;
 export const TEXT_NODE = 3;

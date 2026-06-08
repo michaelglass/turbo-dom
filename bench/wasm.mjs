@@ -12,7 +12,7 @@ const native = require('../index.js');
 
 let wasm;
 try {
-  wasm = require('../pkg/fast_dom_parser.js');
+  wasm = require('../pkg/turbo_dom_parser.js');
 } catch (e) {
   console.error('! wasm pkg not built. Run: wasm-pack build --target nodejs --out-dir pkg --no-default-features --features wasm-bind');
   process.exit(1);

@@ -6,13 +6,10 @@
 //   env.reset();                 // Layer 5: cheap per-file reset
 //   env.reset('<body>next</body>');
 
-import { createRequire } from 'node:module';
 import { Document } from './dom.mjs';
 import { createWindow } from './window.mjs';
 import { unpack } from './buffer.mjs';
-
-const require = createRequire(import.meta.url);
-const native = require('../../index.js');
+import native from './parser.mjs';
 
 export { Document } from './dom.mjs';
 export * from './dom.mjs';
