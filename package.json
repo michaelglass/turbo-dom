@@ -1,6 +1,6 @@
 {
   "name": "@miaskiewicz/turbo-dom",
-  "version": "0.1.59",
+  "version": "0.1.60",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "license": "MIT",
   "main": "index.js",
@@ -24,6 +24,10 @@
     "./install": {
       "import": "./src/environment/install.mjs"
     },
+    "./parser-wasm": {
+      "types": "./pkg-web/turbo_dom_parser.d.ts",
+      "import": "./pkg-web/turbo_dom_parser.js"
+    },
     "./jest": {
       "require": "./src/environment/jest.cjs"
     },
@@ -37,6 +41,10 @@
     "pkg/turbo_dom_parser.d.ts",
     "pkg/turbo_dom_parser_bg.wasm",
     "pkg/turbo_dom_parser_bg.wasm.d.ts",
+    "pkg-web/turbo_dom_parser.js",
+    "pkg-web/turbo_dom_parser.d.ts",
+    "pkg-web/turbo_dom_parser_bg.wasm",
+    "pkg-web/turbo_dom_parser_bg.wasm.d.ts",
     "src/**/*.mjs",
     "src/**/*.cjs",
     "src/**/*.d.ts",
@@ -61,10 +69,11 @@
     }
   },
   "scripts": {
-    "build": "napi build --platform --release && npm run build:wasm:pkg",
+    "build": "napi build --platform --release && npm run build:wasm:pkg && npm run build:wasm:web",
     "build:debug": "napi build --platform",
     "build:wasm": "cargo build --release --no-default-features --features wasm-bind --target wasm32-unknown-unknown",
     "build:wasm:pkg": "wasm-pack build --target nodejs --out-dir pkg --no-default-features --features wasm-bind",
+    "build:wasm:web": "wasm-pack build --target web --out-dir pkg-web --no-default-features --features wasm-bind",
     "test": "node --test 'test/*.mjs'",
     "test:cov": "node --test --experimental-test-coverage --test-coverage-include='src/runtime/**' --test-coverage-lines=99 --test-coverage-functions=92 --test-coverage-branches=88 'test/*.mjs'",
     "test:rust": "cargo test --lib",
@@ -77,7 +86,7 @@
     "bench:suite": "node bench/suite.mjs",
     "bench:wasm": "node bench/wasm.mjs",
     "bench:all": "node bench/parse.mjs && node bench/construct.mjs && node bench/suite.mjs && node bench/query.mjs && node bench/wasm.mjs",
-    "prepublishOnly": "napi build --platform --release && npm run build:wasm:pkg",
+    "prepublishOnly": "napi build --platform --release && npm run build:wasm:pkg && npm run build:wasm:web",
     "test:vitest": "vitest run -c test-vitest/vitest.config.mjs",
     "test:jest": "jest -c test-jest/jest.config.cjs",
     "bench:query": "node bench/query.mjs",

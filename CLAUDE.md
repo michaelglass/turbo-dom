@@ -57,6 +57,19 @@ lexically and hides `v0.1.10+` below `v0.1.9`).
   exception is the partial style cascade in `cascade.mjs` (see getComputedStyle note below): it
   resolves REAL injected `<style>`/inline values, never fabricated ones. Validated by `test/differential.test.mjs`
   (jsdom oracle + happy-dom), `test/gauntlet.test.mjs` (RTL unmodified), `test/runtime.test.mjs`.
+- **Parser binding is a lazy registry** (`parser.mjs`): `getParser()` resolves once —
+  injected binding (`setParser`/`globalThis.__TURBO_DOM_PARSER__`) → mode
+  (`setParserMode`/`createEnvironment({parser})`/`TURBO_DOM_PARSER` env) → auto (native
+  `index.js`, then `pkg/` wasm). `node:module` is a GUARDED top-level await so the module
+  LOADS in a bare V8; with an injected parser the Node loaders never run. Call sites use
+  `getParser().parseBuffer(…)` (memoized, ~free). Two wasm builds ship: `pkg/` (nodejs
+  target, used by the auto-fallback) and `pkg-web/` (web target, node-free `initSync` — the
+  `./parser-wasm` export for embedders). Don't re-add a hardcoded `require('../../index.js')`.
+- **CSSOM is minimal + test-time only** (`cssom.mjs`): `<style>.sheet` (lazy `__sheet`, only
+  emotion-touched styles allocate one) + live `document.styleSheets` + `insertRule`/`deleteRule`.
+  `insertRule` bumps `Document.__version` (via owner `__touch()`), and `cascade.mjs` reads
+  `style.__sheet.cssRules`, so CSS-in-JS injected rules flow into getComputedStyle. Plain
+  documents/hot paths never read `__sheet` (undefined) — zero cost. Don't make `.sheet` eager.
 
 ## Non-obvious things (read before editing)
 

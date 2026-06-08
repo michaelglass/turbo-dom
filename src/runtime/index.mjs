@@ -9,10 +9,14 @@
 import { Document } from './dom.mjs';
 import { createWindow } from './window.mjs';
 import { unpack } from './buffer.mjs';
-import native from './parser.mjs';
+import { getParser, setParserMode } from './parser.mjs';
 
 export { Document } from './dom.mjs';
 export * from './dom.mjs';
+
+// Parser-selection seam (public API): inject a ready binding for a node-free host,
+// or force 'wasm' | 'native' | 'auto'. See parser.mjs.
+export { setParser, setParserMode, getParser } from './parser.mjs';
 
 // Parse cache: the SoA buffer is READ-ONLY (every mutation goes to a Document's
 // own __kids/__attrs/__cache overlay, never the buffer), so the same buffer can
@@ -31,7 +35,7 @@ function parseBufferCached(html) {
     if (html !== __parseCacheMRU) { __parseCache.delete(html); __parseCache.set(html, hit); __parseCacheMRU = html; }
     return hit;
   }
-  let soa = native.parseBuffer(html);
+  let soa = getParser().parseBuffer(html);
   // Unpack the packed blob into typed-array views ONCE here, not per Document in
   // every Buffer ctor — the views are read-only over the shared immutable buffer,
   // so all Documents backed by this cached soa reuse them (no re-unpack per file).
@@ -62,6 +66,12 @@ function promoteDeclarativeShadowRoots(document) {
 }
 
 export function createEnvironment(html = '<!doctype html><html><head></head><body></body></html>', options = {}) {
+  // Optional parser selection: options.parser === 'wasm' | 'native' | 'auto'. Applied
+  // before the first parse below; process-global (the parser binding is a singleton),
+  // so the last mode set wins. Embedders wanting a fully node-free path inject a
+  // binding via setParser()/globalThis.__TURBO_DOM_PARSER__ instead.
+  if (options.parser) setParserMode(options.parser);
+
   // Layer 1: native parse → immutable SoA buffer (typed arrays, one boundary copy).
   let currentHtml = String(html);
   let soa = parseBufferCached(currentHtml);

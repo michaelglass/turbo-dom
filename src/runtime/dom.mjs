@@ -6,7 +6,7 @@
 // Mutation promotes the affected node to fully-owned (COW). Reads are transparent
 // across the boundary — a buffer-backed read and an owned read are indistinguishable.
 
-import native from './parser.mjs';
+import { getParser } from './parser.mjs';
 import {
   EventTarget, Event, CustomEvent,
   UIEvent, MouseEvent, KeyboardEvent, FocusEvent,
@@ -695,7 +695,7 @@ export class Element extends Node {
   // ---- innerHTML / outerHTML ----
   get innerHTML() { return serializeInner(this); }
   set innerHTML(html) {
-    const frag = native.parseFragment(String(html), this.__ns ? `${this.__ns} ${this.localName}` : this.localName);
+    const frag = getParser().parseFragment(String(html), this.__ns ? `${this.__ns} ${this.localName}` : this.localName);
     this.__kids = [];
     this.__touch();
     for (const rawChild of frag.children) {
@@ -969,7 +969,7 @@ export class ShadowRoot extends DocumentFragment {
   get nodeName() { return '#document-fragment'; }
   get innerHTML() { return serializeInner(this); }
   set innerHTML(html) {
-    const frag = native.parseFragment(String(html), ''); // empty context → body
+    const frag = getParser().parseFragment(String(html), ''); // empty context → body
     this.__kids = [];
     this.__touch();
     for (const rawChild of frag.children) {
@@ -1718,7 +1718,7 @@ export { Event, CustomEvent };
 
 // Parse an HTML string into a fresh Document over the immutable SoA buffer.
 export function parseDocument(html) {
-  const soa = native.parseBuffer(String(html));
+  const soa = getParser().parseBuffer(String(html));
   const doc = new Document();
   doc.__load(soa);
   return doc;

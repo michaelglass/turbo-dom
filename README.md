@@ -85,6 +85,37 @@ parseBuffer('<div id=a>...</div>');                // compact SoA typed-array bu
 parseFragment('<rect/>', 'svg path');              // fragment in a context element
 ```
 
+### Choosing the parser backend (native vs WASM)
+
+The runtime resolves a parser lazily on first parse: native N-API addon first, WASM
+fallback. Force it per environment or globally:
+
+```js
+import { createEnvironment, setParserMode } from '@miaskiewicz/turbo-dom/runtime';
+
+createEnvironment(html, { parser: 'wasm' });   // 'wasm' | 'native' | 'auto' (default)
+setParserMode('wasm');                          // process-global; also TURBO_DOM_PARSER=wasm
+```
+
+### Embedding in a non-Node runtime (bare V8, no Node builtins)
+
+The native addon and the `--target nodejs` WASM build both need Node. For a fully
+node-free host, instantiate the `--target web` WASM yourself and inject the binding —
+the runtime then never touches `node:module`/`fs`:
+
+```js
+import init, { initSync, parse, parseBuffer, parseFragment } from '@miaskiewicz/turbo-dom/parser-wasm';
+import { setParser, createEnvironment } from '@miaskiewicz/turbo-dom/runtime';
+
+initSync({ module: wasmBytes });                // you supply the bytes (sync, no fs)
+setParser({ parse, parseBuffer, parseFragment });
+createEnvironment('<div id=app/>');             // now runs with zero Node deps
+```
+
+`setParser` also reads `globalThis.__TURBO_DOM_PARSER__` if you prefer injection by
+global. Use `installGlobals(globalThis, { html })` (from `@miaskiewicz/turbo-dom/install`)
+to set up `document`/`window` on any global object.
+
 ## Compatibility
 
 | | turbo-dom | happy-dom | jsdom |
