@@ -15,6 +15,7 @@ import { liveNodeList, liveHTMLCollection } from './collections.mjs';
 import { matchesSelector, querySelector as qsel, querySelectorAll as qselAll } from './selectors.mjs';
 import { serializeInner, serializeOuter } from './html-serialize.mjs';
 import { CSSStyleSheet, styleSheetList } from './cssom.mjs';
+import { COLOR_PROPS, canonicalizeColor } from './color.mjs';
 import { SVGAnimatedString, SVGAnimatedLength, SVGAnimatedRect, SVG_LENGTH_ATTRS } from './svg.mjs';
 
 // Per-node query-result cache keyed by (selector, document version). querySelectorAll
@@ -240,6 +241,20 @@ export class Node extends EventTarget {
   }
 
   get textContent() {
+    // <style> whose CSSOM sheet received insertRule() (emotion/styled-components
+    // "speedy" mode injects rules WITHOUT touching the node's text): reflect those
+    // rules in the serialized text, as browsers/jsdom do, so tests that scrape
+    // `querySelectorAll('style').map(s => s.textContent)` see the injected CSS.
+    // __sheet is only ever set on <style> elements (sheet getter gates on it), so
+    // this is one predicted-false read for every other element on the hot path.
+    const sheet = this.__sheet;
+    if (sheet && sheet.cssRules.length) {
+      const kids = this.__children();
+      let css = '';
+      for (let i = 0; i < kids.length; i++) if (kids[i].nodeType === TEXT_NODE) css += kids[i].data;
+      for (let i = 0; i < sheet.cssRules.length; i++) css += (css ? '\n' : '') + sheet.cssRules[i].cssText;
+      return css;
+    }
     const kids = this.__children();
     // hot leaf case (RTL getByText reads textContent on every element): a single
     // text child → return its data directly, skipping the iterator + concat.
@@ -1341,11 +1356,19 @@ const SHORTHAND_OF = {
   'padding-top': 'padding', 'padding-right': 'padding', 'padding-bottom': 'padding', 'padding-left': 'padding',
 };
 function styleGet(values, prop) {
-  const direct = values.get(prop);
-  if (direct !== undefined) return direct;
-  const sh = SHORTHAND_OF[prop];
-  if (sh) { const v = values.get(sh); if (v !== undefined && !/\s/.test(v.trim())) return v; }
-  return '';
+  let v = values.get(prop);
+  if (v === undefined) {
+    const sh = SHORTHAND_OF[prop];
+    if (sh) { const s = values.get(sh); if (s !== undefined && !/\s/.test(s.trim())) v = s; }
+  }
+  if (v === undefined) return '';
+  // Inline CSSOM canonicalizes <color> values the way a browser does on read-back:
+  // hex/rgb()/hsl() → rgb()/rgba(), but NAMED keywords stay as authored (includeNamed
+  // =false) — `el.style.color='red'` reads back `'red'`, `'#fff'` reads back rgb().
+  // This keeps el.style read-back consistent with getComputedStyle so jest-dom's
+  // toHaveStyle (which normalizes the expected value via el.style) compares equal.
+  if (COLOR_PROPS.has(prop)) { const c = canonicalizeColor(v, false); if (c) return c; }
+  return v;
 }
 
 // WHATWG value-sanitization per input type. Returns the accepted value, or null

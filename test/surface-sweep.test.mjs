@@ -838,8 +838,8 @@ test('getComputedStyle getPropertyPriority / item / length / iterator', () => {
   root.innerHTML = '<style>.box{color:red;margin:0}</style><div class="box"></div>';
   const box = root.querySelector('.box');
   const cs = window.getComputedStyle(box);
-  assert.equal(cs.getPropertyValue('color'), 'red');
-  assert.equal(cs.color, 'red');
+  assert.equal(cs.getPropertyValue('color'), 'rgb(255, 0, 0)');
+  assert.equal(cs.color, 'rgb(255, 0, 0)');
   assert.equal(cs.getPropertyPriority('color'), '');
   assert.ok(cs.length >= 1);
   assert.ok([...cs].includes('color'));

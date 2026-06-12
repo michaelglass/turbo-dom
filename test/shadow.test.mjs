@@ -230,8 +230,8 @@ test('getComputedStyle scopes <style> to the shadow root (both directions)', () 
   const lite = document.getElementById('lite');
 
   const gcs = window.getComputedStyle;
-  assert.equal(gcs(inner).color, 'green'); // shadow rule wins inside
-  assert.equal(gcs(lite).color, 'red');    // document rule for light DOM
+  assert.equal(gcs(inner).color, 'rgb(0, 128, 0)'); // shadow rule wins inside
+  assert.equal(gcs(lite).color, 'rgb(255, 0, 0)');    // document rule for light DOM
 });
 
 test('document <style> does not leak into shadow tree', () => {
@@ -251,9 +251,9 @@ test('shadow style cache invalidates on shadow mutation', () => {
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = '<style>.leaf{color:green}</style><span class="leaf" id="i">x</span>';
   const inner = root.querySelector('#i');
-  assert.equal(window.getComputedStyle(inner).color, 'green');
+  assert.equal(window.getComputedStyle(inner).color, 'rgb(0, 128, 0)');
   root.querySelector('style').textContent = '.leaf{color:blue}';
-  assert.equal(window.getComputedStyle(inner).color, 'blue');
+  assert.equal(window.getComputedStyle(inner).color, 'rgb(0, 0, 255)');
 });
 
 // --------------------------------------------- fast path stays intact ----
@@ -267,7 +267,7 @@ test('no-shadow document: event.target + cascade behave exactly as before', () =
   const { Event } = window;
   host.dispatchEvent(new Event('ping', { bubbles: true }));
   assert.equal(target, host); // never retargeted
-  assert.equal(window.getComputedStyle(host).color, 'red');
+  assert.equal(window.getComputedStyle(host).color, 'rgb(255, 0, 0)');
 });
 
 test('ShadowRoot is a global constructor reference', () => {
@@ -408,8 +408,8 @@ test('two shadow roots scope queries + styles independently', () => {
 
   // each scope resolves its own rule
   const gcs = window.getComputedStyle;
-  assert.equal(gcs(r1.querySelector('#i1')).color, 'green');
-  assert.equal(gcs(r2.querySelector('#i2')).color, 'blue');
+  assert.equal(gcs(r1.querySelector('#i1')).color, 'rgb(0, 128, 0)');
+  assert.equal(gcs(r2.querySelector('#i2')).color, 'rgb(0, 0, 255)');
 });
 
 test('shadow getElementById / querySelectorAll honest + scoped', () => {
@@ -430,7 +430,7 @@ test('inline style + specificity resolve within shadow scope', () => {
     '<b id="t" class="c" style="color:purple">x</b>';
   const el = root.querySelector('#t');
   // inline beats id beats class — all resolved against the shadow stylesheet
-  assert.equal(window.getComputedStyle(el).color, 'purple');
+  assert.equal(window.getComputedStyle(el).color, 'rgb(128, 0, 128)');
 });
 
 test('closest / matches do not escape the shadow boundary', () => {

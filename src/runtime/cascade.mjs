@@ -7,12 +7,15 @@
 // added to any benchmarked path.
 //
 // HONEST: this only ever returns values that come from a REAL matched rule or inline
-// style. A property no stylesheet/inline set still reads '' — it never invents
-// layout/cascade numbers. Out of scope (return ''): @media/@supports/@keyframes,
-// :hover & other stateful pseudo-classes, pseudo-elements, full inheritance,
-// CSS custom-property resolution, length normalization.
+// style (or inherited from one — see INHERITED). A property no stylesheet/inline set
+// still reads '' — it never invents layout/cascade numbers or initial values. Out of
+// scope (return ''): @media/@supports/@keyframes, :hover & other stateful
+// pseudo-classes, pseudo-elements, the `inherit`/`initial`/`unset` keywords,
+// CSS custom-property resolution. Colors ARE canonicalized to rgb()/rgba() (color.mjs)
+// and bare-0 lengths to `0px`, matching what a browser serializes.
 
 import { matchesSelector } from './selectors.mjs';
+import { COLOR_PROPS, canonicalizeColor } from './color.mjs';
 
 const kebab = (s) => s.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
 
@@ -162,9 +165,10 @@ function collectMatched(el, rules, kind, into) {
   }
 }
 
-// Inheritable properties we propagate across the shadow boundary into shadow
-// content (curated; matches the common inherited set). Honest partial: only
-// these inherit, and only INTO shadow trees — light DOM stays inheritance-free.
+// Inheritable properties we propagate down the flattened tree (curated; matches
+// the common inherited set). Honest partial: only these inherit. Covers both
+// light-DOM "CSS globals" (a rule on html/body cascades to descendants) and
+// crossing the shadow host boundary into shadow content.
 const INHERITED = new Set([
   'color', 'cursor', 'direction', 'font', 'font-family', 'font-size', 'font-style',
   'font-variant', 'font-weight', 'letter-spacing', 'line-height', 'list-style',
@@ -199,6 +203,9 @@ function lookup(map, prop) {
   // (emotion minifies to "a",b,c). Scoped to font-family so we don't rewrite commas
   // inside rgb()/cubic-bezier() values, which browsers leave compact.
   if (prop === 'font-family') return v.replace(/\s*,\s*/g, ', ');
+  // <color> properties: browsers serialize computed colors to rgb()/rgba() —
+  // names, hex, hsl all canonicalize (includeNamed=true). Unrecognized → passthrough.
+  if (COLOR_PROPS.has(prop)) { const c = canonicalizeColor(v, true); if (c) return c; }
   return v;
 }
 
@@ -255,16 +262,21 @@ export function makeGetComputedStyle() {
     const inline = el.getAttribute && el.getAttribute('style');
     if (inline) parseDecls(inline, map);
 
-    // Inheritance INTO shadow content only: an element inside a shadow tree
-    // inherits unset inheritable props from its flattened parent (crossing the
-    // host boundary). Light-DOM elements stay inheritance-free (honest).
-    if (inShadow) {
-      const parent = flattenedParent(el);
-      if (parent) {
-        const ps = gcs(parent); // recursive, memoized, terminates at the light-DOM host
-        for (const prop of INHERITED) {
-          if (!map.has(prop)) { const pv = ps.getPropertyValue(prop); if (pv) map.set(prop, pv); }
-        }
+    // Inheritance: an element inherits unset inheritable props from its flattened
+    // parent (DOM parent, hopping shadow-root→host at the boundary). This carries
+    // "CSS globals" (a rule on html/body/:root) down the tree AND propagates into
+    // shadow content. Honest partial: only the curated INHERITED set inherits, only
+    // from values a REAL rule/inline actually set (pv truthy) — never an initial
+    // value. Recursion is memoized per element/version and terminates at the root
+    // (flattenedParent → null). Test-time only; hot paths never call gcs.
+    // `inShadow` is unused now that light-DOM inherits too, but the flattened-parent
+    // hop still crosses the host boundary correctly for shadow content.
+    void inShadow;
+    const parent = flattenedParent(el);
+    if (parent) {
+      const ps = gcs(parent);
+      for (const prop of INHERITED) {
+        if (!map.has(prop)) { const pv = ps.getPropertyValue(prop); if (pv) map.set(prop, pv); }
       }
     }
 

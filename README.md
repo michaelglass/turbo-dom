@@ -15,10 +15,14 @@ npm install -D @miaskiewicz/turbo-dom
 - ✅ **More compatible than happy-dom** — 99.72% on html5lib-tests vs happy-dom's 37%.
   Runs React Testing Library, `user-event`, downshift, Radix UI, and Headless UI unmodified.
 - ⚡ **Faster than both** — ~130× jsdom / ~45× happy-dom on a realistic suite (parse-memoized repeated shells), ~8–44× faster HTML parsing on real pages, and ~2.7× happy-dom on repeated queries while staying 99.7% spec-correct.
-- 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros.
-  `getComputedStyle` runs a **partial cascade**: it resolves real injected `<style>` rules
-  (emotion/MUI `.css-HASH{…}`) + inline styles with proper specificity/source order — but only
-  ever returns values a real rule set, never invented layout. Geometry tests belong in a real browser.
+- 🎨 **Real computed style** — `getComputedStyle` runs a **partial cascade**: it resolves real
+  injected `<style>` rules (emotion/MUI `.css-HASH{…}`) + inline styles with proper specificity/source
+  order, **inherits the standard inheritable properties down the tree** (a global `body{color}` reaches
+  descendants), and **canonicalizes colors to `rgb()/rgba()`** like a browser (so
+  `toHaveStyle({color:'#fff'})` matches a `#ffffff`/`white`/`rgb(255,255,255)` rule). It only ever
+  returns values a real rule set — never an invented one.
+- 🎯 **Honest, not lying** — no fake layout numbers; `getBoundingClientRect()` is zeros and computed
+  style never invents layout. Geometry tests belong in a real browser.
 
 ## Quick start
 
@@ -124,7 +128,7 @@ to set up `document`/`window` on any global object.
 | @testing-library/dom + user-event | ✅ | ✅ | ✅ |
 | React + Radix / Headless UI / downshift | ✅ | partial | ✅ |
 | Real layout | ❌ (honest stub) | partial | partial |
-| `getComputedStyle` cascade | partial (real `<style>` + inline) | partial | partial |
+| `getComputedStyle` cascade | partial (real `<style>` + inline + inheritance + `rgb()` colors) | partial | partial |
 | Shadow DOM (attach, slots, event retargeting, scoped/`:host` CSS) | ✅ | ✅ | ✅ |
 
 turbo-dom inherits Servo's tree constructor, so the "messy input" cases hand-rolled parsers
@@ -189,13 +193,23 @@ JS (chatty, fine-grained) but pays only for what a test touches. Full design not
 - **No layout.** `getBoundingClientRect()` returns zeros; `getClientRects()` is empty.
 - **`getComputedStyle` is a partial cascade** — it resolves REAL injected `<style>` rules
   (emotion/MUI `.css-HASH{…}`) plus inline `style`, applying specificity and source order
-  (inline wins). It expands common shorthands to longhands (`margin`/`padding`/`border`/single-token
-  `background`), serializes bare `0` as `0px` for length props, and normalizes `font-family`
-  comma spacing to match browser output. Out of scope (returns `''`): `@media`/`@supports`/
-  `@keyframes`, `:hover`/state pseudo-classes, pseudo-elements, full inheritance, CSS custom
-  properties, and length-unit conversion (`em`/`rem`→`px`). Only ever returns values from a
-  matched rule or inline declaration — never an invented one. Style/geometry assertions belong
-  in a real browser (Playwright/WebDriver).
+  (inline wins). It **inherits the standard inheritable properties** (`color`, `font*`,
+  `line-height`, `text-align`, `visibility`, …) down the flattened tree — a global rule on
+  `body`/`:root` reaches descendants, and inheritance crosses the shadow host boundary. It
+  **canonicalizes `<color>` values to `rgb()/rgba()`** (`#fff`/`white`/`hsl(...)` → `rgb(255, 255, 255)`)
+  exactly as browsers serialize computed style, so `@testing-library/jest-dom`'s `toHaveStyle`
+  color assertions compare equal regardless of how the rule authored the color. It expands common
+  shorthands to longhands (`margin`/`padding`/`border`/single-token `background`), serializes bare
+  `0` as `0px` for length props, and normalizes `font-family` comma spacing. Out of scope (returns
+  `''`): `@media`/`@supports`/`@keyframes`, `:hover`/state pseudo-classes, pseudo-elements, the
+  `inherit`/`initial`/`unset` keywords, CSS custom properties, and length-unit conversion
+  (`em`/`rem`→`px`). Only ever returns values from a matched, inline, or inherited declaration —
+  never an invented initial value. Style/geometry assertions belong in a real browser
+  (Playwright/WebDriver).
+- **`<style>.textContent` reflects rules injected via `sheet.insertRule()`** — CSS-in-JS engines in
+  "speedy" mode (emotion/styled-components) inject rules straight into the CSSOM without writing the
+  node's text; turbo-dom serializes them back into `textContent` (as browsers/jsdom do), so tests
+  that scrape `querySelectorAll('style')` text see the injected CSS.
 - Canvas, `<select>` rendering, and similar visual APIs are honest no-op stubs.
 - **Shadow DOM** is supported and pay-for-what-you-use — every event/query/cascade hot path
   is unchanged until the first `attachShadow` flips a per-document flag. Covered: `attachShadow`

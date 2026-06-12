@@ -418,18 +418,18 @@ test('accept / min / max reflect to attributes', () => {
 test('getComputedStyle resolves injected <style> class rules', () => {
   const { document, window } = env('<style>.box{color:rgb(1,2,3);font-size:24px}</style><div id=d class=box></div>');
   const cs = window.getComputedStyle(document.getElementById('d'));
-  assert.equal(cs.color, 'rgb(1,2,3)');
+  assert.equal(cs.color, 'rgb(1, 2, 3)'); // canonical rgb spacing
   assert.equal(cs.fontSize, '24px');
   assert.equal(cs.getPropertyValue('font-size'), '24px');
 });
 
 test('cascade: specificity + source order + inline overlay', () => {
   const { document, window } = env('<style>.a{color:red}#x{color:green}.a{color:blue}</style><p id=x class=a style="color:black"></p>');
-  // inline beats everything
-  assert.equal(window.getComputedStyle(document.getElementById('x')).color, 'black');
+  // inline beats everything (canonicalized: black → rgb(0, 0, 0))
+  assert.equal(window.getComputedStyle(document.getElementById('x')).color, 'rgb(0, 0, 0)');
   const { document: d2, window: w2 } = env('<style>.a{color:red}#x{color:green}.a{color:blue}</style><p id=x class=a></p>');
   // #id (higher specificity) wins over the later .a rule
-  assert.equal(w2.getComputedStyle(d2.getElementById('x')).color, 'green');
+  assert.equal(w2.getComputedStyle(d2.getElementById('x')).color, 'rgb(0, 128, 0)');
 });
 
 test('cascade is honest: unmatched property + no-stylesheet reads empty', () => {
@@ -448,14 +448,14 @@ test('cascade resolves toBeVisible-style hiding (display/visibility)', () => {
 test('cascade invalidates on style mutation (version-keyed)', () => {
   const { document, window } = env('<style id=s>.box{color:red}</style><div id=d class=box></div>');
   const d = document.getElementById('d');
-  assert.equal(window.getComputedStyle(d).color, 'red');
+  assert.equal(window.getComputedStyle(d).color, 'rgb(255, 0, 0)');
   document.getElementById('s').textContent = '.box{color:lime}';
-  assert.equal(window.getComputedStyle(d).color, 'lime'); // rebuilt, not stale
+  assert.equal(window.getComputedStyle(d).color, 'rgb(0, 255, 0)'); // rebuilt, not stale
 });
 
 test('cascade skips @media/@keyframes blocks (honest partial)', () => {
   const { document, window } = env('<style>.box{color:red}@media(min-width:1px){.box{color:blue}}</style><div id=d class=box></div>');
-  assert.equal(window.getComputedStyle(document.getElementById('d')).color, 'red'); // media rule ignored, base applies
+  assert.equal(window.getComputedStyle(document.getElementById('d')).color, 'rgb(255, 0, 0)'); // media rule ignored, base applies
 });
 
 // --------------------------------- 0.1.30 cascade + sanitize follow-ups ----
@@ -485,7 +485,7 @@ test('cascade expands border/margin/padding shorthands to longhands', () => {
   const cs = window.getComputedStyle(document.getElementById('d'));
   assert.match(cs.borderWidth, /1px/);
   assert.equal(cs.borderStyle, 'solid');
-  assert.equal(cs.borderColor, 'red');
+  assert.equal(cs.borderColor, 'rgb(255, 0, 0)');
   assert.equal(cs.marginTop, '5px');
   assert.equal(cs.marginRight, '10px');
   assert.equal(cs.marginBottom, '5px'); // 2-value: bottom=top
@@ -497,5 +497,115 @@ test('cascade normalizes font-family comma spacing', () => {
   const { document, window } = env('<style>.t{font-family:"Open Sans",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;color:rgb(1,2,3)}</style><div id=d class=t></div>');
   const cs = window.getComputedStyle(document.getElementById('d'));
   assert.equal(cs.fontFamily, '"Open Sans", Inter, Roboto, "Helvetica Neue", Arial, sans-serif');
-  assert.equal(cs.color, 'rgb(1,2,3)'); // non-font-family commas untouched
+  assert.equal(cs.color, 'rgb(1, 2, 3)'); // color canonicalized to rgb spacing
+});
+
+// ---------------------------------- color canonicalization (Gap A) ----
+// getComputedStyle serializes every <color> form to rgb()/rgba(), as browsers do.
+test('cascade canonicalizes color values to rgb()/rgba()', () => {
+  const { document, window } = env(
+    '<style>' +
+    '#a{color:#fff} #b{color:#ffffff} #c{color:#ff000080} #d{color:white}' +
+    '#e{color:rgb(1,2,3)} #f{color:rgba(0,0,0,0.5)} #g{color:transparent}' +
+    '#h{color:hsl(0,100%,50%)} #i{color:#abc}' +
+    '</style>' +
+    '<i id=a></i><i id=b></i><i id=c></i><i id=d></i><i id=e></i><i id=f></i><i id=g></i><i id=h></i><i id=i></i>');
+  const c = (id) => window.getComputedStyle(document.getElementById(id)).color;
+  assert.equal(c('a'), 'rgb(255, 255, 255)');        // #fff
+  assert.equal(c('b'), 'rgb(255, 255, 255)');        // #ffffff
+  assert.equal(c('c'), 'rgba(255, 0, 0, 0.502)');    // #ff000080 (alpha 0x80/255)
+  assert.equal(c('d'), 'rgb(255, 255, 255)');        // named white
+  assert.equal(c('e'), 'rgb(1, 2, 3)');              // rgb spacing
+  assert.equal(c('f'), 'rgba(0, 0, 0, 0.5)');        // rgba passthrough-normalize
+  assert.equal(c('g'), 'rgba(0, 0, 0, 0)');          // transparent
+  assert.equal(c('h'), 'rgb(255, 0, 0)');            // hsl → rgb
+  assert.equal(c('i'), 'rgb(170, 187, 204)');        // #abc
+});
+
+// Unrecognized / unsupported color forms pass through unchanged (honest).
+test('cascade passes through non-canonicalizable color values', () => {
+  const { document, window } = env(
+    '<style>' +
+    '#a{color:#ff} #b{color:#xyzxyz} #c{color:rgb(50%,0,0)} #d{color:notacolor}' +
+    '#e{color:hsl(120,50%,50%)} #f{color:hsla(0,0%,0%,0.3)} #g{color:rgb(300,0,0)}' +
+    '</style>' +
+    '<i id=a></i><i id=b></i><i id=c></i><i id=d></i><i id=e></i><i id=f></i><i id=g></i>');
+  const c = (id) => window.getComputedStyle(document.getElementById(id)).color;
+  assert.equal(c('a'), '#ff');               // bad hex length → passthrough
+  assert.equal(c('b'), '#xyzxyz');           // non-hex digits → passthrough
+  assert.equal(c('c'), 'rgb(50%,0,0)');      // percentage rgb → passthrough
+  assert.equal(c('d'), 'notacolor');         // unknown keyword → passthrough
+  assert.equal(c('e'), 'rgb(64, 191, 64)');  // hsl with saturation
+  assert.equal(c('f'), 'rgba(0, 0, 0, 0.3)');// hsla, s=0 achromatic
+  assert.equal(c('g'), 'rgb(255, 0, 0)');    // out-of-range component clamps
+});
+
+// Inline style read-back canonicalizes hex/rgb but KEEPS named keywords (browser
+// behavior), so jest-dom's toHaveStyle compares the normalized expected (set via
+// el.style) equal to the canonicalized computed value.
+test('inline style read-back canonicalizes hex but keeps named (browser parity)', () => {
+  const { document } = env('<div id=d></div>');
+  const d = document.getElementById('d');
+  d.style.color = '#fff';
+  assert.equal(d.style.color, 'rgb(255, 255, 255)');     // hex → rgb inline
+  d.style.backgroundColor = 'red';
+  assert.equal(d.style.backgroundColor, 'red');          // named kept inline
+  d.style.borderColor = 'rgb(1,  2,3)';
+  assert.equal(d.style.borderColor, 'rgb(1, 2, 3)');     // rgb spacing fixed
+});
+
+// The exact toHaveStyle path: expected '#ffffff' (normalized via a div's inline
+// style) must equal a computed '#fff' from a class rule.
+test('toHaveStyle parity: #fff class rule equals #ffffff expected', () => {
+  const { document, window } = env('<style>.card{background-color:#fff}</style><div id=card class=card></div>');
+  const computed = window.getComputedStyle(document.getElementById('card')).backgroundColor;
+  const probe = document.createElement('div');
+  probe.style.backgroundColor = '#ffffff';
+  assert.equal(computed, probe.style.backgroundColor); // both → rgb(255, 255, 255)
+});
+
+// ---------------------------------- light-DOM inheritance (CSS globals) ----
+// An inheritable property set on an ancestor (here body) cascades to descendants;
+// non-inheritable props (background) do not.
+test('cascade inherits inheritable props down the light DOM tree', () => {
+  const { document, window } = env(
+    '<style>body{color:#008000;font-family:Roboto;background:#eee} .mid{font-weight:bold}</style>' +
+    '<section class=mid><p><span id=deep>x</span></p></section>');
+  const cs = window.getComputedStyle(document.getElementById('deep'));
+  assert.equal(cs.color, 'rgb(0, 128, 0)');        // inherited from body
+  assert.equal(cs.fontFamily, 'Roboto');           // inherited from body
+  assert.equal(cs.fontWeight, 'bold');             // inherited from the .mid ancestor
+  assert.equal(cs.background, '');                 // NOT inheritable → honest empty
+});
+
+// A closer rule overrides an inherited value (own cascade wins over inheritance).
+test('own rule beats inherited value', () => {
+  const { document, window } = env(
+    '<style>body{color:#ff0000} #child{color:#0000ff}</style><p id=child>x</p>');
+  assert.equal(window.getComputedStyle(document.getElementById('child')).color, 'rgb(0, 0, 255)');
+});
+
+// ---------------------------------- <style>.textContent reflects sheet (Gap B) ----
+// emotion "speedy" mode injects via sheet.insertRule() without touching node text;
+// browsers/jsdom still reflect those rules in textContent. Tests scrape that.
+test('<style>.textContent reflects rules inserted via sheet.insertRule()', () => {
+  const { document } = env('<div></div>');
+  const style = document.createElement('style');
+  document.head.appendChild(style);
+  style.sheet.insertRule('.box{padding-top:56.25%}', 0);
+  style.sheet.insertRule('@media (min-width:900px){.box{padding-top:0}}', 1);
+  const css = Array.from(document.querySelectorAll('style')).map((s) => s.textContent ?? '').join('');
+  assert.ok(css.includes('56.25%'), 'aspect-ratio rule reflected');
+  assert.ok(/@media[^{]*min-width:\s*900px/.test(css), 'media block reflected');
+});
+
+// authored text + injected rules both appear; a plain <style> with no sheet is
+// unaffected (hot path: __sheet undefined).
+test('<style>.textContent merges authored text with injected rules; plain style untouched', () => {
+  const { document } = env('<style id=s>.a{color:red}</style><div></div>');
+  const s = document.getElementById('s');
+  assert.equal(s.textContent, '.a{color:red}'); // no sheet touched → verbatim
+  s.sheet.insertRule('.b{color:blue}', 0);
+  assert.ok(s.textContent.includes('.a{color:red}'));
+  assert.ok(s.textContent.includes('.b{color:blue}'));
 });

@@ -339,5 +339,5 @@ test('cascade resolves single-token background shorthand to background-color', (
   const { window, document } = fresh();
   document.head.innerHTML = '<style>.bg{background:tomato}</style>';
   document.body.innerHTML = '<div class="bg" id="d"></div>';
-  assert.equal(window.getComputedStyle(document.getElementById('d')).backgroundColor, 'tomato');
+  assert.equal(window.getComputedStyle(document.getElementById('d')).backgroundColor, 'rgb(255, 99, 71)');
 });

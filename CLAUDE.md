@@ -126,13 +126,25 @@ Latest (darwin-arm64, Node 24, `npm run bench:all`), vs jsdom / happy-dom:
   `el.childNodes === el.childNodes` is stable (spec-correct). Don't add a variant that snapshots
   the array at creation — must read through live.
 - **getComputedStyle is a partial cascade** (`cascade.mjs`), NOT inline-only anymore. It resolves
-  injected `<style>` rules (emotion/MUI `.css-HASH{…}`) + inline + specificity/order, memoized as
-  `el.__computedStyle` KEYED ON `Document.__version` (`__computedStyle.__v`) — style mutations bump
-  the version so the cache auto-invalidates. Do NOT make it version-free/live again: the resolved
-  map is a per-version snapshot. Still honest: only returns values from a REAL matched rule/inline;
-  unmatched props read `''`. Out of scope (return `''`): `@media`/`@keyframes`, `:hover`/state,
-  pseudo-elements, full inheritance, CSS vars, length normalization. ZERO hot-path cost — only
-  test-time getComputedStyle calls build the index; parse/query/match/events never touch it.
+  injected `<style>` rules (emotion/MUI `.css-HASH{…}`) + inline + specificity/order + **inheritance
+  of a curated `INHERITED` set down the flattened tree** (so a `body{color}`/global rule cascades to
+  descendants, and inheritance crosses the shadow host boundary). Memoized as `el.__computedStyle`
+  KEYED ON `Document.__version` (`__computedStyle.__v`) — style mutations bump the version so the
+  cache auto-invalidates (inheritance recursion is memoized the same way; `gcs(parent)` terminates
+  at the root). Do NOT make it version-free/live again: the resolved map is a per-version snapshot.
+  Still honest: only returns values from a REAL matched/inline/inherited declaration; unmatched props
+  read `''` (never an initial value). Out of scope (return `''`): `@media`/`@keyframes`, `:hover`/state,
+  pseudo-elements, the `inherit`/`initial`/`unset` keywords, CSS vars. **Colors ARE canonicalized to
+  `rgb()/rgba()`** (`color.mjs`, shared with inline `el.style` read-back) — computed resolves named
+  colors too, inline keeps them as authored, matching browsers so `toHaveStyle` color assertions
+  compare equal. Bare-0 lengths → `0px`. ZERO hot-path cost — only test-time getComputedStyle/`el.style`
+  calls build the index; parse/query/match/events never touch it.
+- **`<style>.textContent` reflects rules injected via `sheet.insertRule()`** (`dom.mjs` textContent
+  getter, gated on `this.__sheet` — a single predicted-false read, only ever truthy on emotion-touched
+  `<style>`s). emotion "speedy" mode injects via `insertRule` without writing node text; browsers/jsdom
+  still serialize those rules into `textContent`, so tests that scrape `querySelectorAll('style')` text
+  see the injected CSS. Authored text + injected rules both appear. Plain `<style>`s (no `.sheet` ever
+  accessed) read verbatim — zero cost.
 - **dispatchEvent skips propagation when no listener is on the path.** One ancestor walk builds
   the path AND flags `hasListener`; capture/target/bubble loops run only if true (preClick +
   default actions still run). React fires thousands of listener-less events.

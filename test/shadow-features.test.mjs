@@ -113,14 +113,14 @@ test(':host and :host(sel) rules apply to the host element only', () => {
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = '<style>:host{color:red;padding:8px} :host(.active){font-weight:bold} :host(.nope){color:lime}</style><span id="s">x</span>';
   const gcs = window.getComputedStyle;
-  assert.equal(gcs(host).color, 'red');         // bare :host
+  assert.equal(gcs(host).color, 'rgb(255, 0, 0)');         // bare :host
   assert.equal(gcs(host).fontWeight, 'bold');   // :host(.active) matches
   assert.notEqual(gcs(host).color, 'lime');     // :host(.nope) does not match
   // :host does not directly MATCH shadow children: a non-inherited property
   // (padding) set on :host must not appear on the child…
   assert.equal(gcs(root.querySelector('#s')).padding, '');
   // …though an INHERITED property (color) does cross the boundary by inheritance.
-  assert.equal(gcs(root.querySelector('#s')).color, 'red');
+  assert.equal(gcs(root.querySelector('#s')).color, 'rgb(255, 0, 0)');
 });
 
 test('::slotted(sel) styles slotted light nodes', () => {
@@ -130,7 +130,7 @@ test('::slotted(sel) styles slotted light nodes', () => {
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = '<style>::slotted(.hl){color:green} ::slotted(b){color:red}</style><slot></slot>';
   const lit = host.querySelector('#lit');
-  assert.equal(window.getComputedStyle(lit).color, 'green'); // matches .hl
+  assert.equal(window.getComputedStyle(lit).color, 'rgb(0, 128, 0)'); // matches .hl
 });
 
 test('inheritable props cross the boundary INTO shadow content; light DOM stays honest', () => {
@@ -140,8 +140,9 @@ test('inheritable props cross the boundary INTO shadow content; light DOM stays 
   root.innerHTML = '<style>:host{color:purple} .inner{font-weight:bold}</style><div class="inner"><span id="deep">x</span></div>';
   const deep = root.querySelector('#deep');
   // color inherits host → .inner → span (none set it explicitly)
-  assert.equal(window.getComputedStyle(deep).color, 'purple');
-  // a sibling light-DOM element does NOT inherit (inheritance is shadow-only here)
+  assert.equal(window.getComputedStyle(deep).color, 'rgb(128, 0, 128)');
+  // a sibling light-DOM element inherits nothing here — no ancestor sets color
+  // (the shadow :host rule is encapsulated) → honest empty
   document.body.insertAdjacentHTML('beforeend', '<section><span id="l">y</span></section>');
   assert.equal(window.getComputedStyle(document.getElementById('l')).color, '');
 });
@@ -150,7 +151,7 @@ test('normal shadow rules still resolve with :host present', () => {
   const { window, document } = fresh();
   const root = document.getElementById('host').attachShadow({ mode: 'open' });
   root.innerHTML = '<style>:host{color:red} .x{color:blue}</style><i class="x" id="i">x</i>';
-  assert.equal(window.getComputedStyle(root.querySelector('#i')).color, 'blue');
+  assert.equal(window.getComputedStyle(root.querySelector('#i')).color, 'rgb(0, 0, 255)');
 });
 
 // ------------------------------------------ declarative <template shadowrootmode> ----
