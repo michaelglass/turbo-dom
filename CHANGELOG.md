@@ -1,0 +1,209 @@
+# Changelog
+
+All notable changes to `@miaskiewicz/turbo-dom` — a native (html5ever + Rust) DOM/window
+environment for vitest/jest. Format based on [Keep a Changelog](https://keepachangelog.com/).
+Early versions were released as lightweight tags / version-stamped commits (no per-release notes
+at the time); this file reconstructs them from history.
+
+## [0.2.0] — CSSOM fidelity
+- `rgb()` color canonicalization, light-DOM style inheritance, `<style>` `textContent` reflects
+  `insertRule`.
+
+## [0.1.62] — SVG support
+- SVG DOM-property wrappers (`SVGElement`): `el.className.baseVal`, etc.
+
+## [0.1.61]
+- Fix CI publish (wasm toolchain) — unblocks npm release.
+
+## [0.1.60]
+- Lazy parser registry: WASM/native selection + node-free embedding.
+
+## [0.1.59]
+- Minimal CSSOM for CSS-in-JS, host-global load guards, install exports.
+
+## [0.1.58]
+- Build + ship the wasm fallback by default; wire native→wasm load.
+
+## [0.1.57]
+- Republish: `index.d.ts` regenerated for the HR2 `JsSoa` types.
+
+## [0.1.56] — perf
+- Ship SoA string tables as one byte blob — ~9% faster parse.
+
+## [0.1.55] — perf
+- Pre-reserve intern-map capacity — ~6% faster parse (realistic doc).
+
+## [0.1.54] — perf
+- `FxHashMap` for SoA string interning — ~6–7% faster parse.
+
+## [0.1.53] — perf
+- `DocumentFragment.cloneNode` builds the child array directly (+8%).
+
+## [0.1.52] — perf
+- Deep `cloneNode` builds the child array directly — ~2× faster.
+
+## [0.1.51] — perf
+- `nextElementSibling`/`previousElementSibling` O(n²)→O(n).
+
+## [0.1.50] — perf
+- Version-cache `Element`/`ShadowRoot` `getElementsBy*` subtree walks.
+
+## [0.1.49] — perf
+- Share the version-cached element-child array across the `child*` getters.
+
+## [0.1.48] — perf
+- Version-cache the children element filter — ~58% faster children access.
+
+## [0.1.47] — perf
+- Unpack the SoA blob once per cached HTML — ~27% faster `createEnvironment`.
+
+## [0.1.46] — perf
+- Lazy `window.origin` — ~18% faster `createEnvironment`.
+
+## [0.1.45] — perf
+- Lazy `customElements` registry — ~5% faster `createEnvironment`.
+
+## [0.1.44] — perf
+- Read `nodeType` once during child inflation — ~5% faster inflation.
+
+## [0.1.43] — perf
+- Read `tagName` once in `__nodeAt` inflation — ~5.5% faster inflation.
+
+## [0.1.42] — perf
+- Skip the listener-snapshot slice for single-listener dispatch — ~13% faster.
+
+## [0.1.41] — perf
+- Inline `addEventListener` option parsing — ~33% faster listener attach.
+
+## [0.1.40] — perf
+- Skip the parse-cache LRU re-insert when the key is already MRU.
+
+## [0.1.39] — perf
+- `textContent` fast-path for single-text-child elements — ~28% faster reads.
+
+## [0.1.38] — perf
+- Lazy `Event._path` — ~2× faster Event construction.
+
+## [0.1.37] — perf
+- Zero-alloc mutations when no `MutationObserver` — ~17% faster.
+
+## [0.1.36] — perf
+- Lazy `Document.__mo` — ~6% faster `createEnvironment`.
+
+## [0.1.35] — perf
+- Hoist env-independent lazy globals to module scope — ~29% faster window construct.
+
+## [0.1.34] — perf
+- Monomorphic `Element` shape — ~7–8% faster real-world suites.
+
+## [0.1.33] — Shadow DOM
+- Full Shadow DOM: slots, retargeting, `:host`/`::slotted`, declarative shadow roots; coverage gate.
+
+## [0.1.32]
+- Docs: document the partial `getComputedStyle` cascade in the README.
+
+## [0.1.31]
+- Normalize `font-family` comma spacing in computed style.
+
+## [0.1.30]
+- WHATWG number sanitization; computed-style px-normalize & shorthand expand.
+
+## [0.1.29]
+- DOM-correctness batch + partial `getComputedStyle` cascade.
+
+## [0.1.28]
+- Fix serializer crash on lazy `__attrs` (buffer-backed elements).
+
+## [0.1.27] — perf
+- Packed SoA blob, dict attr values, lazy attr reads.
+
+## [0.1.26] — perf
+- Allocation-free `.class` matcher + memoized `HTMLCollection`.
+
+## [0.1.25] — perf
+- Lazy `__attrs` allocation (drop the eager `__attrs=[]`).
+
+## [0.1.24] — perf
+- Live-collection index fast path + lazy event listeners.
+
+## [0.1.23] — perf
+- Parse memoization + lazy attrs — realistic suite ~40× happy-dom.
+
+## [0.1.22] — perf
+- Static/dynamic window split — `createWindow` 15µs → 2.5µs.
+
+## [0.1.21] — perf
+- Memoize live views + skip listener-less event propagation.
+
+## [0.1.20] — perf
+- Per-version query-result cache — repeated queries beat happy-dom.
+
+## [0.1.19] — perf
+- Version-keyed `getElementsBy*` cache — `getByLabelText` 4.8× faster.
+
+## [0.1.18] — perf
+- Allocation-free selector/match hot paths — query-heavy ~1.8× faster.
+
+## [0.1.17]
+- Add `license` field (MIT) so npm shows the license.
+
+## [0.1.16]
+- Implicit `<label>` labels only its first control.
+
+## [0.1.15]
+- `click`-in-progress flag fixes programmatic `.click()` re-entrancy.
+
+## [0.1.14]
+- Proper `document.cookie` jar.
+
+## [0.1.13]
+- Fix regression: tag-class prototype `===` `Element.prototype`.
+
+## [0.1.12]
+- Tag-specific `HTML*Element` `instanceof`.
+
+## [0.1.11]
+- Positional pseudo-classes + `anchor.download`/`rel`/`src` reflection.
+
+## [0.1.10]
+- Date/time value sanitization, `:checked` pseudo, `window === globalThis`.
+
+## [0.1.9]
+- Focus blur-on-move, File-preserving `FormData`, no `transformMode` warning.
+
+## [0.1.8]
+- `window.open`/`scrollTo` + CSS `!important` priority.
+
+## [0.1.7]
+- Form-control fidelity: change events for all input types.
+
+## [0.1.6]
+- `Event.initEvent` + typed `createEvent` + fix `performance.now`.
+
+## [0.1.5]
+- Verify + CI-guard jest support.
+
+## [0.1.4]
+- Fix vitest 4 environment adapter + accessible-name (`getByRole`).
+
+## [0.1.3]
+- Broaden the DOM/window surface for real-suite compatibility.
+
+## [0.1.2]
+- Scope the package as `@miaskiewicz/turbo-dom`.
+
+## [0.1.1]
+- First tagged release after the initial publish.
+
+## [0.1.0] — initial release
+First public `@miaskiewicz/turbo-dom`. (Developed as fast-dom → gr0gdom → turbodom → turbo-dom.)
+### Added
+- Native html5ever HTML parser with napi + wasm front-ends (html5ever 0.39, ~99.72% conformance).
+- Structure-of-Arrays flat-buffer parser with lazy typed-array inflation; lazy copy-on-write DOM,
+  lazy window, honest stubs, fast reset.
+- Core DOM surface: `dataset`, `<select>`, real `MutationObserver`, missing globals; attribute
+  name/prefix interning.
+- vitest + jest environment adapters; npm packaging.
+- CI: cross-platform napi prebuilds + Linux test/conformance + tag-triggered publish; platform
+  `optionalDependencies`; single bundled package shipping all binaries.
+- Benchmarks + conformance deltas vs happy-dom / jsdom / parse5.
