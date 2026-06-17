@@ -2372,7 +2372,7 @@ test('SVG element tagName keeps case; attributes expose xlink namespace', () => 
   document.body.innerHTML = '<svg><use xlink:href="#a"></use></svg>';
   const use = document.querySelector('use');
   assert.equal(use.tagName, 'use'); // svg ns → not uppercased
-  const xlinkAttr = use.attributes.find((a) => a.name === 'href' && a.prefix === 'xlink');
+  const xlinkAttr = [...use.attributes].find((a) => a.name === 'href' && a.prefix === 'xlink');
   assert.ok(xlinkAttr);
   assert.equal(xlinkAttr.namespaceURI, 'http://www.w3.org/1999/xlink');
 });

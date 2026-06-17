@@ -11,7 +11,7 @@ import {
   EventTarget, Event, CustomEvent,
   UIEvent, MouseEvent, KeyboardEvent, FocusEvent,
 } from './events.mjs';
-import { liveNodeList, liveHTMLCollection } from './collections.mjs';
+import { liveNodeList, liveHTMLCollection, liveNamedNodeMap } from './collections.mjs';
 import { matchesSelector, querySelector as qsel, querySelectorAll as qselAll } from './selectors.mjs';
 import { serializeInner, serializeOuter } from './html-serialize.mjs';
 import { CSSStyleSheet, styleSheetList } from './cssom.mjs';
@@ -443,10 +443,15 @@ export class Element extends Node {
     this.removeAttribute(name); return false;
   }
   get attributes() {
-    return (this.__attrs ?? (this.__attrs = this.__buildAttrs())).map((a) => ({
-      name: a.name, localName: a.name, value: a.value, prefix: a.prefix || null,
-      namespaceURI: a.prefix === 'xlink' ? 'http://www.w3.org/1999/xlink' : null,
-    }));
+    // Live NamedNodeMap (memoized for identity): length/indexing read __attrs on
+    // every access, so a captured reference shrinks as attributes are removed —
+    // React 19's releaseSingletonInstance `while (attrs.length)` loop terminates.
+    return this.__attributesMap ?? (this.__attributesMap = liveNamedNodeMap(this, () =>
+      (this.__attrs ?? (this.__attrs = this.__buildAttrs())).map((a) => ({
+        name: a.name, localName: a.name, value: a.value, prefix: a.prefix || null,
+        namespaceURI: a.prefix === 'xlink' ? 'http://www.w3.org/1999/xlink' : null,
+        ownerElement: this,
+      }))));
   }
 
   get id() { return this.getAttribute('id') || ''; }
@@ -846,9 +851,10 @@ export class Element extends Node {
   removeAttributeNS(_ns, name) { this.removeAttribute(name); }
   getAttributeNode(name) { const a = (this.__attrs ?? (this.__attrs = this.__buildAttrs())).find((x) => x.name === name); return a ? { name: a.name, value: a.value, ownerElement: this } : null; }
   getAttributeNodeNS(_ns, name) { return this.getAttributeNode(name); }
-  // Attr-node methods are thin shims over the name-based API (no real Attr/NamedNodeMap).
-  // React 19's releaseSingletonInstance reads node.attributes (a detached array copy) then
-  // removeAttributeNode(attr)s each — safe because the iterated copy isn't __attrs.
+  // Attr-node methods are thin shims over the name-based API (no real Attr class).
+  // node.attributes is a LIVE NamedNodeMap (see the getter), so React 19's
+  // releaseSingletonInstance `while (attrs.length) removeAttributeNode(attrs[0])`
+  // shrinks the map each pass and terminates — not a snapshot that loops forever.
   setAttributeNode(attr) { const prev = this.getAttributeNode(attr.name); this.setAttribute(attr.name, attr.value); return prev; }
   setAttributeNodeNS(attr) { return this.setAttributeNode(attr); }
   removeAttributeNode(attr) { const removed = this.getAttributeNode(attr && attr.name); if (attr && attr.name != null) this.removeAttribute(attr.name); return removed; }

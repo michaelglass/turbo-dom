@@ -136,3 +136,42 @@ test('query/getElementById caches invalidate on mutation', () => {
   ul.textContent = '';
   assert.equal(document.querySelectorAll('.z').length, 0);
 });
+
+test('Element.attributes is a live NamedNodeMap (React 19 releaseSingletonInstance terminates)', () => {
+  const { document } = createEnvironment('<!doctype html><body></body>');
+  const el = document.createElement('div');
+  el.setAttribute('a', '1');
+  el.setAttribute('b', '2');
+  el.setAttribute('c', '3');
+
+  // captured reference is live: reflects removals on the element
+  const attrs = el.attributes;
+  assert.equal(attrs.length, 3);
+  el.removeAttribute('a');
+  assert.equal(attrs.length, 2, 'captured map shrinks when element attr removed');
+
+  // EXACT React 19 releaseSingletonInstance loop must terminate
+  let n = 0;
+  while (attrs.length) { el.removeAttributeNode(attrs[0]); if (++n > 100) break; }
+  assert.ok(n <= 2, `loop terminated in ${n} passes, not 100+`);
+  assert.equal(el.attributes.length, 0);
+
+  // identity is stable (spec: same NamedNodeMap object)
+  assert.equal(el.attributes, el.attributes);
+
+  // NamedNodeMap named accessors mutate through the owner element
+  el.setAttribute('x', '1');
+  const map = el.attributes;
+  assert.equal(map.getNamedItem('x').value, '1');
+  assert.equal(map.getNamedItemNS(null, 'x').value, '1');
+  assert.equal(map.removeNamedItem('x').name, 'x');
+  assert.equal(el.hasAttribute('x'), false);
+  el.setAttribute('y', '2');
+  assert.equal(map.removeNamedItemNS(null, 'y').name, 'y');
+  assert.equal(el.hasAttribute('y'), false);
+  map.setNamedItem({ name: 'z', value: '9' });
+  map.setNamedItemNS({ name: 'w', value: '8' });
+  assert.equal(el.getAttribute('z'), '9');
+  assert.equal(el.getAttribute('w'), '8');
+  assert.equal(String(el.attributes), '[object NamedNodeMap]');
+});

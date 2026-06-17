@@ -1,7 +1,7 @@
 // Live collections. Each reads its backing array on every access, so they
 // reflect mutations immediately — the exact place happy-dom bleeds liveness bugs.
 
-function makeLive(getArray, extra = {}) {
+function makeLive(getArray, extra = {}, tag = 'NodeList') {
   // Plain-object target: it has no non-configurable own keys, so ownKeys can
   // report indices + length without tripping the proxy invariant (a function
   // target carries a non-configurable `prototype`, which made Object.keys(coll)
@@ -21,7 +21,7 @@ function makeLive(getArray, extra = {}) {
         if (key === 'entries') return () => getArray().entries();
         if (key === 'keys') return () => getArray().keys();
         if (key === 'values') return () => getArray()[Symbol.iterator]();
-        if (key === 'toString') return () => '[object NodeList]';
+        if (key === 'toString') return () => `[object ${tag}]`;
         if (key in extra) return extra[key](getArray());
         return undefined;
       }
@@ -63,4 +63,18 @@ export function liveHTMLCollection(getArray) {
     namedItem: (arr) => (name) =>
       arr.find((el) => el.getAttribute('id') === name || el.getAttribute('name') === name) ?? null,
   });
+}
+
+// Live NamedNodeMap for Element.attributes. length/indexing read getArray() on
+// every access, so React 19's `while (attrs.length) removeAttributeNode(attrs[0])`
+// loop sees the map shrink and terminates (a snapshot array never would).
+export function liveNamedNodeMap(el, getArray) {
+  return makeLive(getArray, {
+    getNamedItem: (arr) => (name) => arr.find((a) => a.name === name) ?? null,
+    getNamedItemNS: (arr) => (_ns, name) => arr.find((a) => a.name === name) ?? null,
+    setNamedItem: () => (attr) => el.setAttributeNode(attr),
+    setNamedItemNS: () => (attr) => el.setAttributeNode(attr),
+    removeNamedItem: () => (name) => el.removeAttributeNode({ name }),
+    removeNamedItemNS: () => (_ns, name) => el.removeAttributeNode({ name }),
+  }, 'NamedNodeMap');
 }
