@@ -241,6 +241,33 @@ impl Tree {
         out
     }
 
+    /// Visit each (name, value) pair WITHOUT allocating — yields borrowed `&str`
+    /// straight from the overlay or the SoA tables. Hot-path alternative to
+    /// `attributes()` (which clones a `Vec<(String, String)>`).
+    pub fn for_each_attr(&self, h: Handle, mut f: impl FnMut(&str, &str)) {
+        if let Some(ov) = self.attrs_ov.get(&h) {
+            for (n, v) in ov {
+                f(n, v);
+            }
+            return;
+        }
+        if self.is_new(h) {
+            return;
+        }
+        let i = h as usize;
+        let start = self.buf.attr_start[i];
+        if start < 0 {
+            return;
+        }
+        let start = start as usize;
+        let count = self.buf.attr_count[i] as usize;
+        for j in start..start + count {
+            let nid = self.buf.attr_name_id[j] as usize;
+            let vid = self.buf.attr_value_id[j] as usize;
+            f(&self.buf.attr_names[nid], &self.buf.attr_values[vid]);
+        }
+    }
+
     // ----------------------------------------------------------------- text
     pub fn node_value(&self, h: Handle) -> Option<String> {
         let nt = self.node_type(h);
@@ -587,6 +614,33 @@ mod tests {
         let p = (0..tree.node_count()).find(|&h| tree.local_name(h) == Some("p")).unwrap();
         tree.set_text_content(p, "new");
         assert_eq!(tree.text_content(p), "new");
+    }
+
+    #[test]
+    fn for_each_attr_borrows_both_sources() {
+        let tree = t("<a href=/x data-k=v>hi</a>");
+        let a = (0..tree.node_count()).find(|&h| tree.local_name(h) == Some("a")).unwrap();
+        let mut buf = Vec::new();
+        tree.for_each_attr(a, |n, v| buf.push(format!("{n}={v}")));
+        assert_eq!(buf, vec!["href=/x".to_string(), "data-k=v".to_string()]);
+        // overlay source after a mutation
+        let mut t2 = t("<b>x</b>");
+        let b = (0..t2.node_count()).find(|&h| t2.local_name(h) == Some("b")).unwrap();
+        t2.set_attribute(b, "class", "y");
+        let mut ov = Vec::new();
+        t2.for_each_attr(b, |n, v| ov.push(format!("{n}={v}")));
+        assert_eq!(ov, vec!["class=y".to_string()]);
+        // buffer element with NO attributes (start < 0) → no calls
+        let t3 = t("<i>x</i>");
+        let i = (0..t3.node_count()).find(|&h| t3.local_name(h) == Some("i")).unwrap();
+        let mut count = 0;
+        t3.for_each_attr(i, |_, _| count += 1);
+        assert_eq!(count, 0);
+        // created text node (is_new, no attrs overlay) → hits the is_new return
+        let mut t4 = t("<div></div>");
+        let txt = t4.create_text_node("hello");
+        t4.for_each_attr(txt, |_, _| count += 1);
+        assert_eq!(count, 0);
     }
 
     #[test]

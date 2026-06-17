@@ -73,13 +73,13 @@ fn serialize_node(tree: &Tree, h: Handle, parent_tag: Option<&str>, out: &mut St
             let tag = tree.local_name(h).unwrap_or("");
             out.push('<');
             out.push_str(tag);
-            for (name, value) in tree.attributes(h) {
+            tree.for_each_attr(h, |name, value| {
                 out.push(' ');
-                out.push_str(&name);
+                out.push_str(name);
                 out.push_str("=\"");
-                push_escaped_attr(out, &value);
+                push_escaped_attr(out, value);
                 out.push('"');
-            }
+            });
             out.push('>');
             if is_void(tag) {
                 return;
