@@ -826,17 +826,17 @@ export class Element extends Node {
     this.dispatchEvent(new FocusEvent('blur'));
     this.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
   }
-  getBoundingClientRect() { return zeroRect(); }
-  getClientRects() { return []; }
+  getBoundingClientRect() { const w = synthWidth(this), h = synthHeight(this); return { x: 0, y: 0, top: 0, left: 0, right: w, bottom: h, width: w, height: h, toJSON() { return this; } }; }
+  getClientRects() { const r = this.getBoundingClientRect(); return (r.width || r.height) ? [r] : []; }
   scrollIntoView() {}
   scroll() {} scrollTo() {} scrollBy() {}
-  // honest zero geometry (no layout)
-  get offsetWidth() { return 0; } get offsetHeight() { return 0; }
+  // synthetic box model (no real layout) — see synthWidth/synthHeight below
+  get offsetWidth() { return synthWidth(this); } get offsetHeight() { return synthHeight(this); }
   get offsetTop() { return 0; } get offsetLeft() { return 0; }
   get offsetParent() { return null; }
-  get clientWidth() { return 0; } get clientHeight() { return 0; }
+  get clientWidth() { return synthWidth(this); } get clientHeight() { return synthHeight(this); }
   get clientTop() { return 0; } get clientLeft() { return 0; }
-  get scrollWidth() { return 0; } get scrollHeight() { return 0; }
+  get scrollWidth() { return synthWidth(this); } get scrollHeight() { return synthHeight(this); }
   get scrollTop() { return 0; } set scrollTop(_v) {} get scrollLeft() { return 0; } set scrollLeft(_v) {}
 
   // namespaced attributes
@@ -1138,6 +1138,54 @@ function collectByClass(root, classes) {
 
 function zeroRect() {
   return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON() { return this; } };
+}
+
+// ---- synthetic geometry --------------------------------------------------
+// Honest zero geometry deadlocks layout-driven React: a component measures 0,
+// setState()s to "fix" it, re-renders, measures 0 again — forever (MUI Popper /
+// autosizers / virtual lists / useLayoutEffect). So instead of a real layout
+// engine we return a cheap synthetic box model whose values are (1) non-zero &
+// plausible, (2) STABLE for the same DOM state, (3) internally consistent
+// (children fit parents; right-left === width). Width depends only on ancestors,
+// height only on descendants — no cycle. Memoized per node keyed on
+// Document.__version (`__rw`/`__rh`), like __computedStyle, so a mutation
+// invalidates it and a measure→setState→measure cycle sees the same value twice
+// and settles. Test-time only — parse/query/match/events never call these.
+const INLINE_TAGS = new Set(['a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'input', 'kbd', 'label', 'mark', 'output', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'select', 'small', 'span', 'strong', 'sub', 'sup', 'textarea', 'time', 'u', 'var', 'wbr']);
+const LINE_HEIGHT = 18;
+const CHAR_W = 8;
+function viewportWidth(el) { const w = el.ownerDocument && el.ownerDocument.defaultView; return (w && w.innerWidth) || 1024; }
+function synthWidth(el) {
+  const doc = el.ownerDocument || el;
+  const v = doc.__version || 0;
+  const c = el.__rw;
+  if (c && c.v === v) return c.w;
+  const p = el.parentNode;
+  const pw = (p && p.nodeType === ELEMENT_NODE) ? synthWidth(p) : viewportWidth(el);
+  // inline boxes shrink-wrap their text (capped at the parent); blocks fill it
+  const w = INLINE_TAGS.has(el.localName)
+    ? Math.min(pw, Math.max(CHAR_W, (el.textContent || '').length * CHAR_W))
+    : pw;
+  el.__rw = { v, w };
+  return w;
+}
+function synthHeight(el) {
+  const doc = el.ownerDocument || el;
+  const v = doc.__version || 0;
+  const c = el.__rh;
+  if (c && c.v === v) return c.h;
+  const kids = el.__children ? el.__children() : [];
+  let elemKids = 0, stacked = 0;
+  for (let i = 0; i < kids.length; i++) { const k = kids[i]; if (k.nodeType === ELEMENT_NODE) { elemKids++; stacked += synthHeight(k); } }
+  let h;
+  if (elemKids) h = Math.max(LINE_HEIGHT, stacked);  // block flow: element children stack
+  else {
+    const chars = (el.textContent || '').length;
+    const perLine = Math.max(1, Math.floor(synthWidth(el) / CHAR_W));
+    h = Math.max(1, Math.ceil(chars / perLine)) * LINE_HEIGHT;
+  }
+  el.__rh = { v, h };
+  return h;
 }
 
 // child index of `node` within its parent (per spec: the node's "index")

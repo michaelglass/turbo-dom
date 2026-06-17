@@ -89,7 +89,6 @@ const SHARED_LAZY = {
   customElements: () => makeCustomElements(), // fresh registry per env, built on first access
   localStorage: () => new Storage(),
   sessionStorage: () => new Storage(),
-  matchMedia: () => makeMatchMedia(),
   getComputedStyle: () => makeGetComputedStyle(),
   IntersectionObserver: () => IntersectionObserver,
   ResizeObserver: () => ResizeObserver,
@@ -154,6 +153,8 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
     // subsystem grouping: history co-materializes with (and shares) location
     location: () => makeLocation(url),
     history: () => makeHistory(windowProxy.location),
+    // per-env so matchMedia can evaluate queries against THIS window's viewport
+    matchMedia: () => makeMatchMedia(windowProxy),
   };
 
   windowProxy = new Proxy(base, {

@@ -53,9 +53,10 @@ lexically and hides `v0.1.10+` below `v0.1.9`).
   from the parser tree and memoize for identity (`dom.mjs` `Document.__inflate`); the window
   Proxy (`window.mjs`) self-replaces lazy globals and traces touched ones. Selectors read the
   internal `node.__children()` array, NOT the live `childNodes` Proxy. Honest stubs in
-  `stubs.mjs` (never invent layout numbers — `getBoundingClientRect`/offsets stay 0). The one
-  exception is the partial style cascade in `cascade.mjs` (see getComputedStyle note below): it
-  resolves REAL injected `<style>`/inline values, never fabricated ones. Validated by `test/differential.test.mjs`
+  `stubs.mjs`. Two deliberate non-honest areas (both test-time only, see notes below):
+  the partial style cascade in `cascade.mjs`, and the **synthetic geometry** in `dom.mjs`
+  (`getBoundingClientRect`/offset/client/scroll **size** are non-zero — positions stay 0 —
+  because honest-zero deadlocks React's measure→setState→re-measure loop). Validated by `test/differential.test.mjs`
   (jsdom oracle + happy-dom), `test/gauntlet.test.mjs` (RTL unmodified), `test/runtime.test.mjs`.
 - **Parser binding is a lazy registry** (`parser.mjs`): `getParser()` resolves once —
   injected binding (`setParser`/`globalThis.__TURBO_DOM_PARSER__`) → mode
@@ -139,6 +140,20 @@ Latest (darwin-arm64, Node 24, `npm run bench:all`), vs jsdom / happy-dom:
   colors too, inline keeps them as authored, matching browsers so `toHaveStyle` color assertions
   compare equal. Bare-0 lengths → `0px`. ZERO hot-path cost — only test-time getComputedStyle/`el.style`
   calls build the index; parse/query/match/events never touch it.
+- **Synthetic geometry** (`dom.mjs` `synthWidth`/`synthHeight`, since v0.2.3). Honest-zero
+  `getBoundingClientRect`/offsets deadlock layout-driven React (MUI Popper/autosize/virtual
+  lists): measure 0 → setState → re-render → measure 0 → ∞. So **size** is a cheap synthetic box
+  model: block fills parent content width (root = `defaultView.innerWidth` || 1024); inline
+  shrink-wraps text (`len*8`, capped at parent); height = stacked element-children or
+  `lineCount*18`. **Positions stay 0** (top/left/offsetTop/scrollTop) — only size is faked.
+  The three required properties: non-zero, **STABLE per DOM state** (so the measure loop sees the
+  same value twice and settles), internally consistent (`right-left===width`, children fit
+  parents). Memoized per node on `__rw`/`__rh` keyed by `Document.__version` (like
+  `__computedStyle`) — width depends only on ancestors, height only on descendants (no cycle), so
+  a mutation invalidates and recomputes. Test-time only; parse/query/match/events never call it.
+  `matchMedia` (`stubs.mjs`) parses min/max-width/height + orientation and evaluates against the
+  window viewport (feature-less queries stay `false`); `ResizeObserver`/`IntersectionObserver`
+  fire their callback **once**, async, with one initial entry — never on a loop.
 - **`<style>.textContent` reflects rules injected via `sheet.insertRule()`** (`dom.mjs` textContent
   getter, gated on `this.__sheet` — a single predicted-false read, only ever truthy on emotion-touched
   `<style>`s). emotion "speedy" mode injects via `insertRule` without writing node text; browsers/jsdom

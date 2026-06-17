@@ -212,9 +212,13 @@ test('history co-materializes with location and shares it', () => {
 test('honest stubs: no plausible lies', () => {
   const env = fresh();
   const app = env.document.getElementById('app');
-  assert.deepEqual(app.getBoundingClientRect().width, 0);
+  // synthetic geometry is non-zero + STABLE across calls (so React's measure loop settles)
+  const r1 = app.getBoundingClientRect();
+  assert.ok(r1.width > 0);
+  const r2 = app.getBoundingClientRect();
+  assert.equal(r2.width, r1.width); assert.equal(r2.height, r1.height);
   assert.equal(env.window.getComputedStyle(app).color, ''); // honest empty, not "rgb(0,0,0)"
-  assert.equal(env.window.matchMedia('(x)').matches, false);
+  assert.equal(env.window.matchMedia('(x)').matches, false); // feature-less query stays false
 });
 
 // ----------------------------------------------------- Layer 5 reset ----

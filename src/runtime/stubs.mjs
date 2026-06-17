@@ -66,10 +66,34 @@ export class Storage {
   clear() { this.__map.clear(); }
 }
 
-export function makeMatchMedia() {
+// matchMedia: parse width/height/orientation features and evaluate them against
+// the window's innerWidth/innerHeight (default 1024×768). Responsive components
+// (`useMediaQuery`, MUI breakpoints) branch on this; a flat `false` made them
+// mis-branch and thrash. `matches` is a getter so it re-evaluates if innerWidth
+// is overridden — still stable for a given viewport. Unknown/feature-less queries
+// stay honestly `false`.
+const MQ_FEATURE = /\(\s*(min-width|max-width|min-height|max-height|orientation)\s*:\s*([^)]+?)\s*\)/g;
+function evalMediaQuery(query, win) {
+  const W = (win && win.innerWidth) || 1024;
+  const H = (win && win.innerHeight) || 768;
+  const q = String(query).toLowerCase();
+  let matched = true, any = false, m;
+  MQ_FEATURE.lastIndex = 0;
+  while ((m = MQ_FEATURE.exec(q))) {
+    any = true;
+    const feat = m[1], val = m[2].trim();
+    if (feat === 'min-width') matched = matched && W >= parseFloat(val);
+    else if (feat === 'max-width') matched = matched && W <= parseFloat(val);
+    else if (feat === 'min-height') matched = matched && H >= parseFloat(val);
+    else if (feat === 'max-height') matched = matched && H <= parseFloat(val);
+    else matched = matched && val === (W >= H ? 'landscape' : 'portrait'); // orientation
+  }
+  return any && matched;
+}
+export function makeMatchMedia(win) {
   return (query) => ({
-    matches: false,                 // honest: no real media context in a headless runner
-    media: query,
+    media: String(query),
+    get matches() { return evalMediaQuery(query, win); },
     onchange: null,
     addEventListener() {},
     removeEventListener() {},
@@ -82,17 +106,46 @@ export function makeMatchMedia() {
 // getComputedStyle lives in cascade.mjs — it resolves injected <style> sheets +
 // inline styles (a strict superset of the old inline-only stub once here).
 
-class ObserverStub {
+// Resize/Intersection observers fire their callback ONCE, async, with a single
+// initial entry — never on a loop. Components that gate first render on the first
+// observer callback (lazy lists, MUI autosize, visibility-gated mounts) then
+// proceed and settle. The entry's rect is the element's synthetic box (dom.mjs).
+function rectOf(el) {
+  const r = el && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : { width: 0, height: 0 };
+  return { x: 0, y: 0, top: 0, left: 0, right: r.width, bottom: r.height, width: r.width, height: r.height };
+}
+export class ResizeObserver {
   constructor(cb) { this.__cb = cb; }
-  observe() {}
+  observe(el) {
+    const cb = this.__cb;
+    Promise.resolve().then(() => {
+      const r = rectOf(el);
+      const entry = { target: el, contentRect: r, borderBoxSize: [{ inlineSize: r.width, blockSize: r.height }], contentBoxSize: [{ inlineSize: r.width, blockSize: r.height }], devicePixelContentBoxSize: [{ inlineSize: r.width, blockSize: r.height }] };
+      try { cb([entry], this); } catch { /* don't crash the render tier on a callback throw */ }
+    });
+  }
+  unobserve() {}
+  disconnect() {}
+}
+export class IntersectionObserver {
+  constructor(cb, opts = {}) {
+    this.__cb = cb;
+    this.root = opts.root ?? null;
+    this.rootMargin = opts.rootMargin ?? '0px';
+    this.thresholds = Array.isArray(opts.threshold) ? opts.threshold : [opts.threshold ?? 0];
+  }
+  observe(el) {
+    const cb = this.__cb;
+    Promise.resolve().then(() => {
+      const r = rectOf(el);
+      const entry = { target: el, isIntersecting: true, intersectionRatio: 1, boundingClientRect: r, intersectionRect: r, rootBounds: null, time: 0 };
+      try { cb([entry], this); } catch { /* same */ }
+    });
+  }
   unobserve() {}
   disconnect() {}
   takeRecords() { return []; }
 }
-export class IntersectionObserver extends ObserverStub {
-  constructor(cb) { super(cb); this.root = null; this.rootMargin = '0px'; this.thresholds = [0]; }
-}
-export class ResizeObserver extends ObserverStub {}
 
 // MutationObserver: real enough to be useful — fires on observed mutations would
 // require hooking every mutation; v1 is an honest queue-based stub that records

@@ -160,11 +160,30 @@ test('localStorage Storage API', () => {
   assert.equal(s.length, 0);
 });
 
-test('matchMedia returns an addressable MediaQueryList stub', () => {
-  const { window } = fresh();
+test('matchMedia evaluates width/height/orientation against the viewport', () => {
+  const { window } = fresh(); // default viewport 1024x768
+  // width features
+  assert.equal(window.matchMedia('(min-width: 100px)').matches, true);
+  assert.equal(window.matchMedia('(min-width: 2000px)').matches, false);
+  assert.equal(window.matchMedia('(max-width: 600px)').matches, false);
+  assert.equal(window.matchMedia('screen and (max-width: 2000px)').matches, true);
+  // height features
+  assert.equal(window.matchMedia('(min-height: 100px)').matches, true);
+  assert.equal(window.matchMedia('(max-height: 100px)').matches, false);
+  // combined AND (both must hold)
+  assert.equal(window.matchMedia('(min-width: 100px) and (max-width: 2000px)').matches, true);
+  assert.equal(window.matchMedia('(min-width: 100px) and (max-width: 500px)').matches, false);
+  // orientation (1024 >= 768 -> landscape)
+  assert.equal(window.matchMedia('(orientation: landscape)').matches, true);
+  assert.equal(window.matchMedia('(orientation: portrait)').matches, false);
+  // feature-less / unknown query stays honestly false
+  assert.equal(window.matchMedia('(x)').matches, false);
+  assert.equal(window.matchMedia('print').matches, false);
+  // addressable MediaQueryList surface
   const mq = window.matchMedia('(min-width: 100px)');
-  assert.equal(mq.matches, false);
+  assert.equal(mq.media, '(min-width: 100px)');
   mq.addEventListener('change', () => {});
+  mq.removeEventListener('change', () => {});
   mq.addListener(() => {});
   mq.removeListener(() => {});
   assert.equal(mq.dispatchEvent({}), false);
@@ -411,26 +430,32 @@ test('MutationObserver subtree ignores a mutation outside the observed root', as
 // ==== batch 2: honest layout/geometry/pointer/animation stubs ========
 // ====================================================================
 
-test('Element honest geometry/scroll/pointer/animation stubs return spec values', () => {
+test('Element synthetic geometry + honest scroll/pointer/animation stubs', () => {
   const { document } = fresh();
   document.body.innerHTML = '<div id="d">x</div>';
   const el = document.getElementById('d');
   const r = el.getBoundingClientRect();
-  assert.equal(r.width, 0); assert.equal(r.height, 0);
+  // synthetic box: non-zero, consistent (right-left===width, bottom-top===height), top/left honest 0
+  assert.ok(r.width > 0); assert.ok(r.height > 0);
   assert.equal(r.top, 0); assert.equal(r.left, 0);
-  assert.deepEqual(el.getClientRects(), []);
+  assert.equal(r.right - r.left, r.width); assert.equal(r.bottom - r.top, r.height);
+  assert.equal(r.toJSON(), r);
+  const rects = el.getClientRects(); // one rect when sized
+  assert.equal(rects.length, 1);
+  assert.equal(rects[0].width, r.width); assert.equal(rects[0].height, r.height);
   // scroll family are pure no-ops (return undefined, never throw)
   assert.equal(el.scrollIntoView(), undefined);
   assert.equal(el.scroll(), undefined);
   assert.equal(el.scrollTo(0, 0), undefined);
   assert.equal(el.scrollBy(1, 1), undefined);
-  // honest zero geometry getters
-  assert.equal(el.offsetWidth, 0); assert.equal(el.offsetHeight, 0);
+  // size getters mirror the synthetic rect + are internally consistent
+  assert.equal(el.offsetWidth, r.width); assert.equal(el.offsetHeight, r.height);
+  assert.equal(el.clientWidth, r.width); assert.equal(el.clientHeight, r.height);
+  assert.equal(el.scrollWidth, r.width); assert.equal(el.scrollHeight, r.height);
+  // positions + offsetParent stay honest zero/null (no real layout)
   assert.equal(el.offsetTop, 0); assert.equal(el.offsetLeft, 0);
   assert.equal(el.offsetParent, null);
-  assert.equal(el.clientWidth, 0); assert.equal(el.clientHeight, 0);
   assert.equal(el.clientTop, 0); assert.equal(el.clientLeft, 0);
-  assert.equal(el.scrollWidth, 0); assert.equal(el.scrollHeight, 0);
   assert.equal(el.scrollTop, 0); assert.equal(el.scrollLeft, 0);
   el.scrollTop = 50; el.scrollLeft = 50; // setters are no-ops
   assert.equal(el.scrollTop, 0); assert.equal(el.scrollLeft, 0);
@@ -438,6 +463,32 @@ test('Element honest geometry/scroll/pointer/animation stubs return spec values'
   assert.equal(el.setPointerCapture(1), undefined);
   assert.equal(el.releasePointerCapture(1), undefined);
   assert.equal(el.hasPointerCapture(1), false);
+});
+
+test('synthetic geometry: stable, block fills parent, inline shrink-wraps, children stack', () => {
+  const { document } = fresh();
+  document.body.innerHTML = '<section id="s"><p id="p">hello world</p><span id="sp">hi</span><b id="empty"></b></section>';
+  const s = document.getElementById('s');
+  const p = document.getElementById('p');
+  const sp = document.getElementById('sp');
+  const empty = document.getElementById('empty');
+  // block fills the viewport-derived parent width
+  assert.equal(p.offsetWidth, s.offsetWidth);
+  assert.ok(s.offsetWidth > 0);
+  // inline shrink-wraps its text (narrower than the block parent), capped at parent
+  assert.ok(sp.offsetWidth < s.offsetWidth);
+  assert.equal(sp.offsetWidth, 'hi'.length * 8);
+  // empty inline still non-zero
+  assert.ok(empty.offsetWidth > 0);
+  // a block with element children stacks them (>= one line)
+  assert.ok(s.offsetHeight >= p.offsetHeight);
+  // STABLE across calls for the same DOM state (the property that breaks React's loop)
+  assert.equal(p.offsetHeight, p.offsetHeight);
+  const h1 = p.getBoundingClientRect().height;
+  assert.equal(p.getBoundingClientRect().height, h1);
+  // mutation invalidates the memo (version bump) and recomputes
+  p.textContent = 'a much much much longer run of text that wraps onto more lines than before';
+  assert.ok(p.getBoundingClientRect().height >= h1);
 });
 
 test('Element.animate returns a controllable Animation-like stub', async () => {
@@ -978,22 +1029,53 @@ test('canonicalizeColor: hsl with/without alpha, percentages, named, transparent
 // ==== batch 12: stubs.mjs observers ==================================
 // ====================================================================
 
-test('stubs IntersectionObserver/ResizeObserver/MutationObserver honest no-ops', async () => {
-  const stubs = await import('../src/runtime/stubs.mjs');
-  const cb = () => {};
-  const io = new stubs.IntersectionObserver(cb);
+test('stubs IntersectionObserver/ResizeObserver fire once with an initial entry', async () => {
+  const { document, window } = fresh();
+  document.body.innerHTML = '<div id="t">hi</div>';
+  const el = document.getElementById('t');
+
+  // IntersectionObserver: options parsed; fires once, isIntersecting:true, ratio:1
+  const io = new window.IntersectionObserver(() => {}, { rootMargin: '10px', threshold: [0, 0.5] });
   assert.equal(io.root, null);
-  assert.equal(io.rootMargin, '0px');
-  assert.deepEqual(io.thresholds, [0]);
-  assert.equal(io.observe(), undefined);
+  assert.equal(io.rootMargin, '10px');
+  assert.deepEqual(io.thresholds, [0, 0.5]);
+  const ioEntries = await new Promise((res) => {
+    new window.IntersectionObserver((entries) => res(entries)).observe(el);
+  });
+  assert.equal(ioEntries.length, 1);
+  assert.equal(ioEntries[0].target, el);
+  assert.equal(ioEntries[0].isIntersecting, true);
+  assert.equal(ioEntries[0].intersectionRatio, 1);
+  assert.equal(ioEntries[0].boundingClientRect.width, el.getBoundingClientRect().width);
+  // default-threshold construction path
+  assert.deepEqual(new window.IntersectionObserver(() => {}).thresholds, [0]);
   assert.equal(io.unobserve(), undefined);
   assert.equal(io.disconnect(), undefined);
   assert.deepEqual(io.takeRecords(), []);
-  const ro = new stubs.ResizeObserver(cb);
-  assert.equal(ro.observe(), undefined);
+
+  // ResizeObserver: fires once with a contentRect matching the synthetic box
+  const roEntries = await new Promise((res) => {
+    new window.ResizeObserver((entries) => res(entries)).observe(el);
+  });
+  assert.equal(roEntries.length, 1);
+  assert.equal(roEntries[0].target, el);
+  assert.equal(roEntries[0].contentRect.width, el.getBoundingClientRect().width);
+  assert.equal(roEntries[0].borderBoxSize[0].inlineSize, el.getBoundingClientRect().width);
+  const ro = new window.ResizeObserver(() => {});
+  assert.equal(ro.unobserve(), undefined);
   assert.equal(ro.disconnect(), undefined);
-  assert.deepEqual(ro.takeRecords(), []);
-  const mo = new stubs.MutationObserver(cb);
+
+  // a throwing callback must not crash (render-tier safety)
+  new window.ResizeObserver(() => { throw new Error('boom'); }).observe(el);
+  new window.IntersectionObserver(() => { throw new Error('boom'); }).observe(el);
+  // observe with no element → rect falls back to zero, still fires once
+  const z = await new Promise((res) => { new window.ResizeObserver((e) => res(e)).observe(undefined); });
+  assert.equal(z[0].contentRect.width, 0);
+  await new Promise((r) => setTimeout(r, 0)); // let the throwing callbacks settle
+
+  // stubs.mjs MutationObserver remains the honest queue-based no-op stub
+  const stubs = await import('../src/runtime/stubs.mjs');
+  const mo = new stubs.MutationObserver(() => {});
   assert.equal(mo.observe(), undefined);
   assert.equal(mo.disconnect(), undefined);
   assert.deepEqual(mo.takeRecords(), []);
