@@ -6,6 +6,9 @@
 
 pub mod core;
 
+// Pure-Rust DOM runtime (native Rust API; no wasm-bindgen / napi).
+pub mod rtdom;
+
 // Phase-1 boundary spike (Rust DOM runtime exported to JS via wasm-bindgen).
 #[cfg(feature = "wasm-runtime")]
 pub mod spike;
