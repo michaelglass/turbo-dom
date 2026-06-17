@@ -9,13 +9,18 @@
 
 pub mod cascade;
 pub mod color;
+pub mod cssom;
 pub mod events;
+pub mod node_ref;
 pub mod query;
 pub mod serialize;
+pub mod stubs;
+pub mod svg;
 pub mod tree;
 
 #[cfg(test)]
 mod gauntlet;
 
 pub use events::{Dom, Event};
+pub use node_ref::{DocumentExt, NodeRef};
 pub use tree::{Handle, Tree};

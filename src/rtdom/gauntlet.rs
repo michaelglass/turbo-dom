@@ -144,6 +144,67 @@ fn native_workload_throughput() {
     );
 }
 
+/// CONTROLLED in-process A/B (same language, runtime, harness, fixture) — isolates
+/// the ONE variable the design rests on: lazy COW reads (off the immutable buffer)
+/// vs eager full-inflate (every node materialized into the owned HashMap overlay).
+/// Run: `cargo test --release --lib rtdom::gauntlet::lazy_vs_eager -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn lazy_vs_eager_ab() {
+    use super::tree::Tree;
+    use std::time::Instant;
+
+    let n = 300;
+    let mut html = String::from("<!doctype html><html><body><main class=grid>");
+    for i in 0..n {
+        html.push_str(&format!(
+            "<div class=\"card sx-{}\" data-testid=\"card-{}\" id=\"c{}\"><h2 class=title>T{}</h2><p>body</p><button type=button>Go</button></div>",
+            i % 7, i, i, i
+        ));
+    }
+    html.push_str("</main></body></html>");
+
+    let run = |tree: &Tree| {
+        let cards = tree.query_selector_all("div.card");
+        let work = || {
+            let mut sink: u64 = 0;
+            for &el in &cards {
+                if let Some(c) = tree.get_attribute(el, "class") { sink += c.len() as u64; }
+                if let Some(t) = tree.get_attribute(el, "data-testid") { sink += t.len() as u64; }
+                for c in tree.children(el) { sink += tree.node_type(c) as u64; }
+                let mut p = tree.parent(el);
+                while let Some(x) = p { sink += 1; p = tree.parent(x); }
+            }
+            sink
+        };
+        let mut best = 0.0f64;
+        let mut sink = 0u64;
+        for _ in 0..6 {
+            for _ in 0..200 { sink = sink.wrapping_add(work()); }
+            let start = Instant::now();
+            let mut iters = 0u64;
+            while start.elapsed().as_millis() < 400 { sink = sink.wrapping_add(work()); iters += 1; }
+            let ops = iters as f64 / start.elapsed().as_secs_f64();
+            if ops > best { best = ops; }
+        }
+        (best, sink % 100003)
+    };
+
+    let lazy = Tree::parse(&html);
+    let (lazy_ops, s1) = run(&lazy);
+
+    let mut eager = Tree::parse(&html);
+    let inflate_start = Instant::now();
+    eager.force_inflate_all();
+    let inflate_ms = inflate_start.elapsed().as_secs_f64() * 1000.0;
+    let (eager_ops, s2) = run(&eager);
+
+    println!("lazy-vs-eager A/B (same runtime, {} cards):", n);
+    println!("  lazy  (buffer reads, zero overlay alloc): {:.0} ops/s (sink {})", lazy_ops, s1);
+    println!("  eager (full HashMap overlay inflate)     : {:.0} ops/s (sink {})", eager_ops, s2);
+    println!("  eager up-front inflate cost: {:.2} ms; lazy read path is {:.2}x eager", inflate_ms, lazy_ops / eager_ops);
+}
+
 #[test]
 fn innerhtml_then_query_and_serialize() {
     let mut dom = Dom::parse("<div id=root></div>");

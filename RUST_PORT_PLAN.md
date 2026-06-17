@@ -293,9 +293,22 @@ Native Rust is ~2.7× the JS runtime and ~4.8× the WASM-from-JS path on the sam
 dual-runtime thesis, measured: the Rust-consumer path WINS (zero boundary), the JS-loads-WASM path
 LOSES. (Cross-runtime comparison — directional signal, not a controlled in-process A/B.)
 
-**Remaining (optional, when a real Rust consumer needs them):** shadow scoping in cascade, full
-attr-operator coverage (`^=`/`$=`/`*=`/`~=`), CSSOM/SVG/stub surfaces, and an ergonomic `NodeRef`
-façade over handles. The JS runtime (`src/runtime/*.mjs`) stays untouched — the path for JS/vitest.
+**Gaps resolved (all four):**
+- ✅ **Shadow-DOM scoping** — `tree.rs`: `attach_shadow`/`shadow_root`/`shadow_host`/`shadow_root_of`/
+  `descendants`/`assigned_nodes` (encapsulation: light queries skip shadow; named/default slot assignment).
+  `cascade.rs`: `:host`/`:host(sel)`, `::slotted(sel)`, shadow-scoped `<style>`, and `flattened_parent`
+  hops shadow-root→host so inheritance crosses the boundary.
+- ✅ **Attr operators** — `query.rs`: `^=` `$=` `*=` `~=` `|=` plus exact/presence (`AttrOp` enum).
+- ✅ **CSSOM / SVG / stubs / NodeRef** — `cssom.rs` (CssStyleSheet/Rule + insert/deleteRule + parse),
+  `svg.rs` (SVG length/string/viewBox accessors), `stubs.rs` (Storage, media-query eval, observer entries),
+  `node_ref.rs` (ergonomic `NodeRef` + `DocumentExt` façade, descendant-scoped query).
+- ✅ **Controlled in-process A/B** — `gauntlet::lazy_vs_eager_ab` (same runtime/harness/fixture, isolates
+  the laziness variable): lazy buffer reads **88,651 ops/s** vs eager full-overlay **52,883 ops/s** →
+  **lazy 1.68× eager** + 0.38ms up-front inflate avoided. The laziness design wins measurably in-process.
+
+79 rtdom unit tests green (+2 ignored benches). Still skipped as inherently JS-host (not Rust-portable):
+FileReader async, canvas Proxy, customElements ctors, MutationObserver queue, location/history nav.
+The JS runtime (`src/runtime/*.mjs`) stays untouched — the path for JS/vitest consumers.
 
 ---
 

@@ -37,6 +37,9 @@ pub struct Tree {
     children_ov: HashMap<Handle, Vec<Handle>>,
     attrs_ov: HashMap<Handle, Vec<(String, String)>>,
     text_ov: HashMap<Handle, String>,
+    /// host → shadow-root handle, and shadow-root → host (the two shadow maps).
+    shadow_root_of_host: HashMap<Handle, Handle>,
+    host_of_shadow_root: HashMap<Handle, Handle>,
     pub version: u64,
     /// version-keyed query result cache (mirrors JS cachedQSA / Document.__version).
     pub(crate) qcache: RefCell<QueryCache>,
@@ -60,6 +63,8 @@ impl Tree {
             children_ov: HashMap::new(),
             attrs_ov: HashMap::new(),
             text_ov: HashMap::new(),
+            shadow_root_of_host: HashMap::new(),
+            host_of_shadow_root: HashMap::new(),
             version: 0,
             qcache: RefCell::new(QueryCache::default()),
         }
@@ -430,6 +435,89 @@ impl Tree {
             _ => self.create_text_node(&n.value),
         }
     }
+
+    /// Force every buffer-backed node into the owned overlay (attrs + children).
+    /// Defeats laziness on purpose — only for the lazy-vs-eager A/B bench. After
+    /// this, reads go through the HashMap overlay instead of the zero-alloc buffer.
+    pub fn force_inflate_all(&mut self) {
+        for h in 0..self.buf_len {
+            if self.node_type(h) == ELEMENT_NODE {
+                self.ensure_attrs(h);
+            }
+            self.ensure_children(h);
+        }
+    }
+
+    // --------------------------------------------------------------- shadow DOM
+    /// Attach a shadow root to `host` and return its handle (a FRAGMENT node).
+    /// The shadow root is NOT a light child of the host — `children(host)` never
+    /// includes it (encapsulation is free: queries over the light tree skip it).
+    /// Populate it via `set_inner_html(shadow_root, ...)` or append_child.
+    pub fn attach_shadow(&mut self, host: Handle) -> Handle {
+        let sr = self.push_new(FRAGMENT_NODE, String::new(), 0);
+        self.children_ov.insert(sr, Vec::new());
+        self.shadow_root_of_host.insert(host, sr);
+        self.host_of_shadow_root.insert(sr, host);
+        self.bump();
+        sr
+    }
+
+    pub fn shadow_root(&self, host: Handle) -> Option<Handle> {
+        self.shadow_root_of_host.get(&host).copied()
+    }
+    pub fn shadow_host(&self, shadow_root: Handle) -> Option<Handle> {
+        self.host_of_shadow_root.get(&shadow_root).copied()
+    }
+    pub fn is_shadow_root(&self, h: Handle) -> bool {
+        self.host_of_shadow_root.contains_key(&h)
+    }
+
+    /// The shadow root that contains `h`, if any (walk to the top of `h`'s tree;
+    /// a node inside a shadow tree tops out at the shadow-root fragment).
+    pub fn shadow_root_of(&self, h: Handle) -> Option<Handle> {
+        let mut top = h;
+        while let Some(p) = self.parent(top) {
+            top = p;
+        }
+        if self.is_shadow_root(top) {
+            Some(top)
+        } else {
+            None
+        }
+    }
+
+    /// DFS document-order descendants of `root` (excluding `root`).
+    pub fn descendants(&self, root: Handle) -> Vec<Handle> {
+        let mut out = Vec::new();
+        let mut stack: Vec<Handle> = self.children(root).into_iter().rev().collect();
+        while let Some(h) = stack.pop() {
+            out.push(h);
+            for &c in self.children(h).iter().rev() {
+                stack.push(c);
+            }
+        }
+        out
+    }
+
+    /// Light-DOM nodes assigned to `slot` (a `<slot>` inside a shadow tree):
+    /// the host's light element children whose `slot` attr equals the slot's
+    /// `name` (default "" ↔ unnamed slot). Mirrors `assignedNodes`.
+    pub fn assigned_nodes(&self, slot: Handle) -> Vec<Handle> {
+        let sr = match self.shadow_root_of(slot) {
+            Some(sr) => sr,
+            None => return Vec::new(),
+        };
+        let host = match self.shadow_host(sr) {
+            Some(host) => host,
+            None => return Vec::new(),
+        };
+        let slot_name = self.get_attribute(slot, "name").unwrap_or("");
+        self.children(host)
+            .into_iter()
+            .filter(|&c| self.node_type(c) == ELEMENT_NODE)
+            .filter(|&c| self.get_attribute(c, "slot").unwrap_or("") == slot_name)
+            .collect()
+    }
 }
 
 fn ns_id(namespace: &str) -> u8 {
@@ -514,6 +602,29 @@ mod tests {
         assert_eq!(tree.local_name(kids[1]), Some("b"));
         assert_eq!(tree.text_content(div), "hix");
         assert_eq!(tree.parent(kids[0]), Some(div));
+    }
+
+    #[test]
+    fn shadow_root_encapsulation_and_slots() {
+        let mut tree = t("<my-card><span slot=title>Hi</span><p>light</p></my-card>");
+        let host = (0..tree.node_count()).find(|&h| tree.local_name(h) == Some("my-card")).unwrap();
+        let sr = tree.attach_shadow(host);
+        tree.set_inner_html(sr, "<style>:host{color:red}</style><slot name=title></slot><slot></slot>");
+        // encapsulation: shadow content is NOT in the light tree
+        assert!(tree.shadow_root_of_host.get(&host).is_some());
+        assert_eq!(tree.query_selector_all("slot").len(), 0); // light query skips shadow
+        // shadow_root_of resolves for shadow-internal nodes
+        let slots = tree.descendants(sr).into_iter().filter(|&h| tree.local_name(h) == Some("slot")).collect::<Vec<_>>();
+        assert_eq!(slots.len(), 2);
+        assert_eq!(tree.shadow_root_of(slots[0]), Some(sr));
+        assert_eq!(tree.shadow_host(sr), Some(host));
+        // assignedNodes: the named slot gets the span[slot=title]; default slot gets <p>
+        let named = slots.iter().find(|&&s| tree.get_attribute(s, "name") == Some("title")).copied().unwrap();
+        let default = slots.iter().find(|&&s| tree.get_attribute(s, "name").is_none()).copied().unwrap();
+        let an = tree.assigned_nodes(named);
+        assert_eq!(an.len(), 1);
+        assert_eq!(tree.local_name(an[0]), Some("span"));
+        assert_eq!(tree.assigned_nodes(default).len(), 1); // the <p>
     }
 
     #[test]

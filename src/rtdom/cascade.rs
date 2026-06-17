@@ -430,15 +430,50 @@ fn apply_matched(matched: &mut [Rule], out: &mut HashMap<String, String>) {
     }
 }
 
-/// Flattened-tree parent for inheritance. v1: the DOM element parent only.
-/// TODO: shadow scoping — the JS hops shadow-root→host at the boundary.
+/// Flattened-tree parent for inheritance. Crosses the shadow boundary: a
+/// top-level shadow child inherits from the HOST (the JS hops shadow-root→host).
 fn flattened_parent(tree: &Tree, h: Handle) -> Option<Handle> {
     let p = tree.parent(h)?;
+    if tree.is_shadow_root(p) {
+        return tree.shadow_host(p); // shadow-root→host hop
+    }
     if tree.node_type(p) == ELEMENT_NODE {
         Some(p)
     } else {
         None
     }
+}
+
+/// Parse every `<style>` inside a shadow root into scoped rules.
+fn shadow_rules(tree: &Tree, shadow_root: Handle) -> Vec<Rule> {
+    let mut rules = Vec::new();
+    let mut order = 0u32;
+    for h in tree.descendants(shadow_root) {
+        if tree.local_name(h) == Some("style") {
+            let text = tree.text_content(h);
+            order = parse_stylesheet(&text, order, &mut rules);
+        }
+    }
+    rules
+}
+
+/// `:host` → Some(""), `:host(sel)` → Some(sel), else None.
+fn host_selector(sel: &str) -> Option<&str> {
+    let s = sel.trim();
+    if let Some(rest) = s.strip_prefix(":host(") {
+        rest.strip_suffix(')')
+    } else if s == ":host" {
+        Some("")
+    } else {
+        None
+    }
+}
+
+/// `::slotted(sel)` → Some(sel), else None.
+fn slotted_selector(sel: &str) -> Option<&str> {
+    let i = sel.find("::slotted(")?;
+    let rest = &sel[i + "::slotted(".len()..];
+    rest.find(')').map(|j| rest[..j].trim())
 }
 
 /// Look up a resolved property from the cascade map, applying shorthand fallback,
@@ -509,9 +544,47 @@ pub fn computed_style(tree: &Tree, h: Handle) -> HashMap<String, String> {
         return map;
     }
 
-    let rules = build_index(tree);
     let mut matched = Vec::new();
-    collect_matched(tree, h, &rules, &mut matched);
+
+    // Document <style> rules apply to LIGHT-DOM elements only (encapsulation).
+    let in_shadow = tree.shadow_root_of(h);
+    if in_shadow.is_none() {
+        let rules = build_index(tree);
+        collect_matched(tree, h, &rules, &mut matched);
+    } else if let Some(sr) = in_shadow {
+        // shadow-internal element: normal selectors from the shadow's own <style>.
+        for r in shadow_rules(tree, sr) {
+            if !is_shadow_only_selector(&r.selector) && tree.matches(h, &r.selector) {
+                matched.push(r);
+            }
+        }
+    }
+
+    // :host — if `h` hosts a shadow root, its shadow's :host rules style the host.
+    if let Some(sr) = tree.shadow_root(h) {
+        for r in shadow_rules(tree, sr) {
+            if let Some(sel) = host_selector(&r.selector) {
+                if sel.is_empty() || tree.matches(h, sel) {
+                    matched.push(r);
+                }
+            }
+        }
+    }
+
+    // ::slotted(sel) — if `h` is a light child slotted into a shadow host, that
+    // shadow's ::slotted rules style the distributed node.
+    if let Some(parent) = tree.parent(h) {
+        if let Some(sr) = tree.shadow_root(parent) {
+            for r in shadow_rules(tree, sr) {
+                if let Some(inner) = slotted_selector(&r.selector) {
+                    if inner.is_empty() || tree.matches(h, inner) {
+                        matched.push(r);
+                    }
+                }
+            }
+        }
+    }
+
     apply_matched(&mut matched, &mut map);
 
     // inline style wins over stylesheet rules
@@ -566,6 +639,42 @@ mod tests {
             "color",
         );
         assert_eq!(got, "rgb(255, 0, 0)");
+    }
+
+    #[test]
+    fn shadow_host_slotted_and_inheritance() {
+        // host with a shadow root: :host styles host, a shadow-internal element
+        // gets shadow <style> rules, ::slotted styles distributed light nodes,
+        // and inheritance hops shadow-root→host.
+        let mut tree = Tree::parse("<my-box style=\"color:green\"><span slot=t>S</span></my-box>");
+        let host = tree.query_selector("my-box").unwrap();
+        let sr = tree.attach_shadow(host);
+        tree.set_inner_html(
+            sr,
+            "<style>:host{padding:4px} p{color:blue} ::slotted(span){font-weight:bold}</style><p>inner</p><slot name=t></slot>",
+        );
+
+        // :host applies to the host
+        let host_cs = computed_style(&tree, host);
+        assert_eq!(get_property_value(&host_cs, "padding"), "4px");
+
+        // shadow-internal <p> matches the shadow's `p{color:blue}`
+        let p = tree.descendants(sr).into_iter().find(|&h| tree.local_name(h) == Some("p")).unwrap();
+        let p_cs = computed_style(&tree, p);
+        assert_eq!(get_property_value(&p_cs, "color"), "rgb(0, 0, 255)");
+        // ...and inherits color from the host across the boundary (host has color:green inline)
+        let p_color_inherited = {
+            // <p> sets its own color (blue), so test inheritance on a node that does NOT:
+            // the slot itself inherits host green via flattened parent
+            let slot = tree.descendants(sr).into_iter().find(|&h| tree.local_name(h) == Some("slot")).unwrap();
+            get_property_value(&computed_style(&tree, slot), "color")
+        };
+        assert_eq!(p_color_inherited, "rgb(0, 128, 0)"); // green from host, crossed boundary
+
+        // ::slotted(span) styles the distributed light <span>
+        let span = tree.query_selector("span").unwrap();
+        let span_cs = computed_style(&tree, span);
+        assert_eq!(get_property_value(&span_cs, "font-weight"), "bold");
     }
 
     #[test]

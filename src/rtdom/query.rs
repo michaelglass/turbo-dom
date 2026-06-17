@@ -8,10 +8,22 @@
 
 use super::tree::{Handle, Tree, ELEMENT_NODE};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AttrOp {
+    Presence, // [attr]
+    Exact,    // [attr=v]
+    Includes, // [attr~=v]  whitespace-separated word
+    Dash,     // [attr|=v]  v or v-...
+    Prefix,   // [attr^=v]
+    Suffix,   // [attr$=v]
+    Substr,   // [attr*=v]
+}
+
 #[derive(Debug, Clone)]
 struct Attr {
     name: String,
-    value: Option<String>, // None = presence only ([attr])
+    op: AttrOp,
+    value: String, // empty for Presence
 }
 
 #[derive(Debug, Clone, Default)]
@@ -245,14 +257,35 @@ fn nth_match(a: i64, b: i64, index: i64) -> bool {
 fn parse_attr(inner: &str) -> Attr {
     match inner.find('=') {
         Some(eq) => {
-            let name = inner[..eq].trim().trim_end_matches(['~', '^', '$', '*', '|']).trim().to_string();
+            // operator char (if any) sits immediately before '='
+            let raw_name = &inner[..eq];
+            let (op, name) = match raw_name.as_bytes().last() {
+                Some(b'~') => (AttrOp::Includes, &raw_name[..raw_name.len() - 1]),
+                Some(b'|') => (AttrOp::Dash, &raw_name[..raw_name.len() - 1]),
+                Some(b'^') => (AttrOp::Prefix, &raw_name[..raw_name.len() - 1]),
+                Some(b'$') => (AttrOp::Suffix, &raw_name[..raw_name.len() - 1]),
+                Some(b'*') => (AttrOp::Substr, &raw_name[..raw_name.len() - 1]),
+                _ => (AttrOp::Exact, raw_name),
+            };
             let mut val = inner[eq + 1..].trim();
             if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
                 val = &val[1..val.len() - 1];
             }
-            Attr { name, value: Some(val.to_string()) }
+            Attr { name: name.trim().to_string(), op, value: val.to_string() }
         }
-        None => Attr { name: inner.trim().to_string(), value: None },
+        None => Attr { name: inner.trim().to_string(), op: AttrOp::Presence, value: String::new() },
+    }
+}
+
+fn attr_op_matches(op: AttrOp, want: &str, got: &str) -> bool {
+    match op {
+        AttrOp::Presence => true,
+        AttrOp::Exact => got == want,
+        AttrOp::Prefix => !want.is_empty() && got.starts_with(want),
+        AttrOp::Suffix => !want.is_empty() && got.ends_with(want),
+        AttrOp::Substr => !want.is_empty() && got.contains(want),
+        AttrOp::Includes => !want.is_empty() && got.split_ascii_whitespace().any(|w| w == want),
+        AttrOp::Dash => got == want || got.starts_with(&format!("{want}-")),
     }
 }
 
@@ -344,9 +377,8 @@ impl Tree {
             }
         }
         for a in &c.attrs {
-            match (&a.value, self.get_attribute(h, &a.name)) {
-                (None, Some(_)) => {}
-                (Some(want), Some(got)) if want == got => {}
+            match self.get_attribute(h, &a.name) {
+                Some(got) if attr_op_matches(a.op, &a.value, got) => {}
                 _ => return false,
             }
         }
@@ -648,6 +680,21 @@ mod tests {
         assert_eq!(tree.query_selector_all("a[href]").len(), 2);
         assert_eq!(tree.query_selector_all("a[data-k=v]").len(), 1);
         assert_eq!(tree.query_selector_all("[data-k='v']").len(), 1);
+    }
+
+    #[test]
+    fn attr_operators() {
+        let tree = Tree::parse(
+            "<a href='/docs/intro' lang='en-US' class='btn primary' data-x='foobar'>1</a>\
+             <a href='/help' lang='en' class='btn' data-x='bazfoo'>2</a>",
+        );
+        assert_eq!(tree.query_selector_all("a[href^='/docs']").len(), 1);
+        assert_eq!(tree.query_selector_all("a[href$='intro']").len(), 1);
+        assert_eq!(tree.query_selector_all("a[data-x*='oba']").len(), 1); // foobar
+        assert_eq!(tree.query_selector_all("a[class~='primary']").len(), 1);
+        assert_eq!(tree.query_selector_all("a[class~='btn']").len(), 2);
+        assert_eq!(tree.query_selector_all("a[lang|='en']").len(), 2); // en + en-US
+        assert_eq!(tree.query_selector_all("a[href^='/x']").len(), 0);
     }
 
     #[test]
