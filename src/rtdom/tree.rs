@@ -272,6 +272,67 @@ impl Tree {
         }
     }
 
+    /// Like `for_each_attr` but also yields the foreign-content attr `prefix`
+    /// ("xlink"/"xml"/"xmlns", else ""). Needed by the html5lib dump. Overlay
+    /// (created/mutated) attrs have no stored prefix → "".
+    pub fn for_each_attr_full(&self, h: Handle, mut f: impl FnMut(&str, &str, &str)) {
+        if let Some(ov) = self.attrs_ov.get(&h) {
+            for (n, v) in ov {
+                f("", n, v);
+            }
+            return;
+        }
+        if self.is_new(h) {
+            return;
+        }
+        let i = h as usize;
+        let start = self.buf.attr_start[i];
+        if start < 0 {
+            return;
+        }
+        let start = start as usize;
+        let count = self.buf.attr_count[i] as usize;
+        for j in start..start + count {
+            let prefix = &self.buf.attr_prefixes[self.buf.attr_prefix_id[j] as usize];
+            let nid = self.buf.attr_name_id[j] as usize;
+            let vid = self.buf.attr_value_id[j] as usize;
+            f(prefix, &self.buf.attr_names[nid], &self.buf.attr_values[vid]);
+        }
+    }
+
+    /// The interned tag/label name for an element OR document-fragment node (the
+    /// `<template>` synthetic `content` fragment carries the label "content").
+    /// None for nodes without a tag id (text/comment/doctype/document).
+    pub fn node_label(&self, h: Handle) -> Option<&str> {
+        let nt = self.node_type(h);
+        if nt != ELEMENT_NODE && nt != FRAGMENT_NODE {
+            return None;
+        }
+        if self.is_new(h) {
+            return if nt == ELEMENT_NODE { Some(&self.new_ref(h).name) } else { None };
+        }
+        Some(&self.buf.tag_names[self.buf.tag_id[h as usize] as usize])
+    }
+
+    /// DOCTYPE name / public id / system id (buffer-backed doctype nodes). The
+    /// SoA stores all three as pooled strings (public/system "" when absent).
+    pub fn doctype_name(&self, h: Handle) -> Option<&str> {
+        self.doctype_field(h, &self.buf.text_id)
+    }
+    pub fn doctype_public_id(&self, h: Handle) -> Option<&str> {
+        self.doctype_field(h, &self.buf.pub_id)
+    }
+    pub fn doctype_system_id(&self, h: Handle) -> Option<&str> {
+        self.doctype_field(h, &self.buf.sys_id)
+    }
+    fn doctype_field<'a>(&'a self, h: Handle, col: &[i32]) -> Option<&'a str> {
+        if self.node_type(h) != DOCTYPE_NODE || self.is_new(h) {
+            return None;
+        }
+        let id = col[h as usize];
+        Some(self.buf.strings.get(id as usize).map_or("", |s| s.as_str()))
+    }
+
     // ----------------------------------------------------------------- text
     pub fn node_value(&self, h: Handle) -> Option<String> {
         let nt = self.node_type(h);
@@ -662,6 +723,58 @@ mod tests {
         let p = (0..tree.node_count()).find(|&h| tree.local_name(h) == Some("p")).unwrap();
         tree.set_text_content(p, "new");
         assert_eq!(tree.text_content(p), "new");
+    }
+
+    #[test]
+    fn dump_accessors_doctype_prefix_label() {
+        // doctype name + public/system ids
+        let dt = t("<!DOCTYPE html PUBLIC \"-//W3C//DTD\" \"sys.dtd\"><html></html>");
+        let doctype = (0..dt.node_count()).find(|&h| dt.node_type(h) == DOCTYPE_NODE).unwrap();
+        assert_eq!(dt.doctype_name(doctype), Some("html"));
+        assert_eq!(dt.doctype_public_id(doctype), Some("-//W3C//DTD"));
+        assert_eq!(dt.doctype_system_id(doctype), Some("sys.dtd"));
+        // plain doctype: empty ids
+        let dt2 = t("<!DOCTYPE html><html></html>");
+        let d2 = (0..dt2.node_count()).find(|&h| dt2.node_type(h) == DOCTYPE_NODE).unwrap();
+        assert_eq!(dt2.doctype_public_id(d2), Some(""));
+        // doctype accessors return None for non-doctype + new nodes
+        let html = dt2.get_elements_by_tag_name("html")[0];
+        assert_eq!(dt2.doctype_name(html), None);
+        let mut m = t("<div></div>");
+        let txt = m.create_text_node("x");
+        assert_eq!(m.doctype_name(txt), None);
+
+        // node_label: element, template-content fragment, and None for text
+        let tpl = t("<template><i></i></template>");
+        let frag = (0..tpl.node_count()).find(|&h| tpl.node_type(h) == FRAGMENT_NODE).unwrap();
+        assert_eq!(tpl.node_label(frag), Some("content"));
+        let i = (0..tpl.node_count()).find(|&h| tpl.local_name(h) == Some("i")).unwrap();
+        assert_eq!(tpl.node_label(i), Some("i"));
+        let txt2 = (0..tpl.node_count()).find(|&h| tpl.node_type(h) == TEXT_NODE);
+        if let Some(tx) = txt2 {
+            assert_eq!(tpl.node_label(tx), None);
+        }
+        // node_label for a created (is_new) element + a created fragment-less text
+        let fresh = m.create_element("span");
+        assert_eq!(m.node_label(fresh), Some("span"));
+        assert_eq!(m.node_label(txt), None);
+
+        // for_each_attr_full yields foreign-content prefix from the buffer
+        let svg = t("<svg><a xlink:href=\"u\" id=\"k\"></a></svg>");
+        let a = (0..svg.node_count()).find(|&h| svg.local_name(h) == Some("a")).unwrap();
+        let mut got = Vec::new();
+        svg.for_each_attr_full(a, |p, n, v| got.push(format!("{p}|{n}={v}")));
+        assert!(got.contains(&"xlink|href=u".to_string()));
+        assert!(got.contains(&"|id=k".to_string()));
+        // overlay + is_new paths → empty prefix / no calls
+        let mut o = t("<b></b>");
+        let b = (0..o.node_count()).find(|&h| o.local_name(h) == Some("b")).unwrap();
+        o.set_attribute(b, "class", "c");
+        let mut ov = Vec::new();
+        o.for_each_attr_full(b, |p, n, v| ov.push(format!("{p}|{n}={v}")));
+        assert_eq!(ov, vec!["|class=c".to_string()]);
+        let fresh_txt = o.create_text_node("z");
+        o.for_each_attr_full(fresh_txt, |_, _, _| panic!("text has no attrs"));
     }
 
     #[test]
