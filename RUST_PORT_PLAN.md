@@ -261,6 +261,30 @@ and compute-shaped moves to Rust.
 
 ---
 
+## 8. Build status (rtdom — the Rust-native runtime)
+
+Crate module `src/rtdom/` (pure Rust, native API, no wasm/napi; compiled into the default rlib).
+Verified by `cargo test --lib rtdom`.
+
+| Module | Status | Notes |
+|---|---|---|
+| `tree.rs` | ✅ | COW tree over `core::Soa`, `version` counter, lazy attrs, reads/mutations, `set_inner_html` (fragment import). |
+| `query.rs` | ✅ + pseudo-classes (in progress) | selectors (tag/class/id/attr, descendant/child, comma), version-cached qSA, getElementById/ByTag, `matches`. Pseudo-classes added by agent. |
+| `color.rs` | ✅ | named/hex/hsl → rgb()/rgba(), byte-identical to color.mjs. 14 tests. |
+| `serialize.rs` | ✅ | inner/outerHTML, void + raw-text, exact escaping. |
+| `cascade.rs` | ✅ | partial getComputedStyle (inline + `<style>` rules via `tree.matches`, specificity, inheritance, color canon, px/shorthand). Shadow scoping = TODO. |
+| `events.rs` | ✅ | `Dom` (owns Tree + listeners), capture/target/bubble, listener-less skip, stop/preventDefault, once, tree-mutating handlers. |
+| `gauntlet.rs` | ✅ | Phase-4 end-to-end: parse→query→cascade→event-mutate→re-query→serialize. |
+
+**Phase mapping vs the original plan:** Phase 0 (scaffold) ✅, Phase 1 (spike → PIVOT) ✅, Phase 2
+(pure/algorithmic: color/serialize/cascade/selectors) ✅, Phase 3 (chatty core: tree/events; query) ✅
+for the Rust-native API. Remaining: shadow scoping in cascade, full pseudo/attr-operator coverage, a
+native in-process bench quantifying the Rust-consumer win (expected >> JS since zero boundary), and
+optional CSSOM/SVG/stub surfaces if a Rust consumer needs them. The JS runtime (`src/runtime/*.mjs`)
+stays untouched and remains the path for JS/vitest consumers.
+
+---
+
 ## 7. Phase-1 spike — concrete spec (the kill/continue gate)
 
 **Goal:** answer ONE question with a number — *does a Rust-core-in-WASM DOM, accessed from JS, beat (or stay

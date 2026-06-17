@@ -14,5 +14,8 @@ pub mod query;
 pub mod serialize;
 pub mod tree;
 
+#[cfg(test)]
+mod gauntlet;
+
 pub use events::{Dom, Event};
 pub use tree::{Handle, Tree};

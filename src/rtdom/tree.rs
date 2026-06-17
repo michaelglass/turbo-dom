@@ -390,6 +390,54 @@ impl Tree {
         self.bump();
         h
     }
+
+    /// Parse `html` as a fragment in the context of element `h` and replace its
+    /// children (innerHTML setter). Imported nodes become owned (new) nodes.
+    pub fn set_inner_html(&mut self, h: Handle, html: &str) {
+        let ctx = self.local_name(h).unwrap_or("body").to_string();
+        let frag = core::parse_html_fragment_context(html, &ctx);
+        let mut kids = Vec::with_capacity(frag.children.len());
+        for c in &frag.children {
+            kids.push(self.import_node(c));
+        }
+        for &k in &kids {
+            self.parent_ov.insert(k, h as i32);
+        }
+        self.children_ov.insert(h, kids);
+        self.bump();
+    }
+
+    /// Recursively import a parsed `core::Node` as owned nodes. Returns its handle.
+    fn import_node(&mut self, n: &core::Node) -> Handle {
+        match n.node_type {
+            ELEMENT_NODE => {
+                let ns = ns_id(&n.namespace);
+                let h = self.create_element_ns(&n.name, ns);
+                for a in &n.attrs {
+                    self.set_attribute(h, &a.name, &a.value);
+                }
+                let mut kids = Vec::with_capacity(n.children.len());
+                for c in &n.children {
+                    kids.push(self.import_node(c));
+                }
+                for &k in &kids {
+                    self.parent_ov.insert(k, h as i32);
+                }
+                self.children_ov.insert(h, kids);
+                h
+            }
+            COMMENT_NODE => self.create_comment(&n.value),
+            _ => self.create_text_node(&n.value),
+        }
+    }
+}
+
+fn ns_id(namespace: &str) -> u8 {
+    match namespace {
+        "svg" => 1,
+        "math" => 2,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +500,20 @@ mod tests {
         let p = (0..tree.node_count()).find(|&h| tree.local_name(h) == Some("p")).unwrap();
         tree.set_text_content(p, "new");
         assert_eq!(tree.text_content(p), "new");
+    }
+
+    #[test]
+    fn set_inner_html_imports_fragment() {
+        let mut tree = t("<div></div>");
+        let div = (0..tree.node_count()).find(|&h| tree.local_name(h) == Some("div")).unwrap();
+        tree.set_inner_html(div, "<span class=a>hi</span><b>x</b>");
+        let kids = tree.children(div);
+        assert_eq!(kids.len(), 2);
+        assert_eq!(tree.local_name(kids[0]), Some("span"));
+        assert_eq!(tree.get_attribute(kids[0], "class"), Some("a"));
+        assert_eq!(tree.local_name(kids[1]), Some("b"));
+        assert_eq!(tree.text_content(div), "hix");
+        assert_eq!(tree.parent(kids[0]), Some(div));
     }
 
     #[test]
