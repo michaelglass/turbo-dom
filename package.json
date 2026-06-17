@@ -76,7 +76,7 @@
     "build:wasm:web": "wasm-pack build --target web --out-dir pkg-web --no-default-features --features wasm-bind",
     "test": "node --test 'test/*.mjs'",
     "test:cov": "node --test --experimental-test-coverage --test-coverage-include='src/runtime/**' --test-coverage-lines=99 --test-coverage-functions=95 --test-coverage-branches=95 'test/*.mjs'",
-    "test:rust": "cargo test --lib",
+    "test:rust": "cargo test --lib --features rust-runtime",
     "test:all": "npm run build && npm run test:rust && npm test",
     "prepare": "git config core.hooksPath .githooks || true",
     "conformance": "node harness/conformance.mjs",
@@ -91,7 +91,8 @@
     "test:jest": "jest -c test-jest/jest.config.cjs",
     "bench:query": "node bench/query.mjs",
     "bench:scorecard": "node bench/scorecard.mjs",
-    "conformance:rtdom": "cargo test --lib rtdom::conformance::rtdom_html5lib_conformance_full_document -- --nocapture"
+    "conformance:rtdom": "cargo test --lib --features rust-runtime rtdom::conformance::rtdom_html5lib_conformance_full_document -- --nocapture",
+    "build:rtdom": "cargo build --release --no-default-features --features rust-runtime"
   },
   "keywords": [
     "dom",

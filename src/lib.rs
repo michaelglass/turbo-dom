@@ -6,7 +6,9 @@
 
 pub mod core;
 
-// Pure-Rust DOM runtime (native Rust API; no wasm-bindgen / napi).
+// Pure-Rust DOM runtime (native Rust API; no wasm-bindgen / napi). Off by default
+// so shipped parser artifacts stay lean — a Rust consumer enables `rust-runtime`.
+#[cfg(feature = "rust-runtime")]
 pub mod rtdom;
 
 // Phase-1 boundary spike (Rust DOM runtime exported to JS via wasm-bindgen).
