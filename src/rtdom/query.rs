@@ -606,17 +606,39 @@ impl Tree {
         self.query_selector_all(selector).first().copied()
     }
 
+    /// getElementById, version-cached. Shares `qcache` with querySelectorAll under a
+    /// `\u{1}`-prefixed key (never a valid selector char, so no collision). Result is
+    /// stored as a 0- or 1-element Vec. Mirrors the JS `__idCache`.
     pub fn get_element_by_id(&self, id: &str) -> Option<Handle> {
+        let key = {
+            let mut k = String::with_capacity(id.len() + 1);
+            k.push('\u{1}');
+            k.push_str(id);
+            k
+        };
+        {
+            let mut cache = self.qcache.borrow_mut();
+            if cache.version != self.version {
+                cache.version = self.version;
+                cache.map.clear();
+            }
+            if let Some(hit) = cache.map.get(&key) {
+                return hit.first().copied();
+            }
+        }
+        let mut found = None;
         let mut stack = vec![self.root()];
         while let Some(h) = stack.pop() {
             if self.node_type(h) == ELEMENT_NODE && self.get_attribute(h, "id") == Some(id) {
-                return Some(h);
+                found = Some(h);
+                break;
             }
             for &c in self.children(h).iter().rev() {
                 stack.push(c);
             }
         }
-        None
+        self.qcache.borrow_mut().map.insert(key, found.into_iter().collect());
+        found
     }
 
     pub fn get_elements_by_tag_name(&self, tag: &str) -> Vec<Handle> {
@@ -683,6 +705,21 @@ mod tests {
         assert_eq!(tree.query_selector_all("a[class~='btn']").len(), 2);
         assert_eq!(tree.query_selector_all("a[lang|='en']").len(), 2); // en + en-US
         assert_eq!(tree.query_selector_all("a[href^='/x']").len(), 0);
+    }
+
+    #[test]
+    fn get_element_by_id_caches_and_invalidates() {
+        let mut tree = Tree::parse("<div id=a></div><div id=b></div>");
+        let a = tree.get_element_by_id("a").unwrap(); // miss → walk → cache
+        assert_eq!(tree.get_element_by_id("a"), Some(a)); // hit path
+        assert_eq!(tree.get_element_by_id("missing"), None); // negative cached
+        assert_eq!(tree.get_element_by_id("missing"), None); // hit of negative
+        // mutation bumps version → cache cleared, new id visible
+        let root = tree.root();
+        let c = tree.create_element("div");
+        tree.set_attribute(c, "id", "c");
+        tree.append_child(root, c);
+        assert_eq!(tree.get_element_by_id("c"), Some(c));
     }
 
     #[test]

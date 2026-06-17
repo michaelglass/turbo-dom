@@ -28,21 +28,40 @@ fn is_raw_text(tag: &str) -> bool {
     RAW_TEXT.contains(&tag)
 }
 
-/// Matches JS `escapeText`: replace `&`, then ` `, then `<`, then `>` (order matters
-/// because each replaces a distinct char, but `&amp;` must be done first so a literal
-/// `&` becomes `&amp;` before any other replacement introduces `&`).
-fn escape_text(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace(' ', "&nbsp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+/// Append `s` text-escaped (`&`→`&amp;`, ` `→`&nbsp;`, `<`→`&lt;`, `>`→`&gt;`) into
+/// `out` in a single pass. Per-original-char mapping is identical to the JS chained
+/// `replace` (no char a replacement emits is itself a replacement target). Fast path:
+/// no special byte → push the slice whole (zero alloc, no scan-rewrite).
+fn push_escaped_text(out: &mut String, s: &str) {
+    if !s.bytes().any(|b| matches!(b, b'&' | b' ' | b'<' | b'>')) {
+        out.push_str(s);
+        return;
+    }
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            ' ' => out.push_str("&nbsp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
 }
 
-/// Matches JS `escapeAttr`: replace `&`, then ` `, then `"`.
-fn escape_attr(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace(' ', "&nbsp;")
-        .replace('"', "&quot;")
+/// Append `s` attribute-escaped (`&`→`&amp;`, ` `→`&nbsp;`, `"`→`&quot;`) into `out`.
+fn push_escaped_attr(out: &mut String, s: &str) {
+    if !s.bytes().any(|b| matches!(b, b'&' | b' ' | b'"')) {
+        out.push_str(s);
+        return;
+    }
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            ' ' => out.push_str("&nbsp;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
 }
 
 /// Serialize `h` and its subtree (the node itself + descendants). `parent_tag` is the
@@ -50,24 +69,24 @@ fn escape_attr(s: &str) -> String {
 fn serialize_node(tree: &Tree, h: Handle, parent_tag: Option<&str>, out: &mut String) {
     match tree.node_type(h) {
         ELEMENT_NODE => {
-            // elements always have a local name; default keeps this total + coverable.
-            let tag = tree.local_name(h).unwrap_or("").to_string();
+            // local_name borrows &Tree; serialize is all-immutable, so no String alloc.
+            let tag = tree.local_name(h).unwrap_or("");
             out.push('<');
-            out.push_str(&tag);
+            out.push_str(tag);
             for (name, value) in tree.attributes(h) {
                 out.push(' ');
                 out.push_str(&name);
                 out.push_str("=\"");
-                out.push_str(&escape_attr(&value));
+                push_escaped_attr(out, &value);
                 out.push('"');
             }
             out.push('>');
-            if is_void(&tag) {
+            if is_void(tag) {
                 return;
             }
-            serialize_children(tree, h, &tag, out);
+            serialize_children(tree, h, tag, out);
             out.push_str("</");
-            out.push_str(&tag);
+            out.push_str(tag);
             out.push('>');
         }
         TEXT_NODE => {
@@ -75,7 +94,7 @@ fn serialize_node(tree: &Tree, h: Handle, parent_tag: Option<&str>, out: &mut St
             if parent_tag.map(is_raw_text).unwrap_or(false) {
                 out.push_str(&data);
             } else {
-                out.push_str(&escape_text(&data));
+                push_escaped_text(out, &data);
             }
         }
         COMMENT_NODE => {
@@ -168,6 +187,16 @@ mod tests {
         let tree = Tree::parse("<div><!--hello--></div>");
         let div = first_div(&tree);
         assert_eq!(serialize_inner(&tree, div), "<!--hello-->");
+    }
+
+    #[test]
+    fn attr_value_ampersand_and_quote_escaped() {
+        let mut tree = Tree::parse("<span></span>");
+        let span = tree.get_elements_by_tag_name("span")[0];
+        tree.set_attribute(span, "title", "a & \"b\"");
+        let html = serialize_outer(&tree, span);
+        // & → &amp;, " → &quot;, space → &nbsp; (matching escape_attr semantics)
+        assert_eq!(html, "<span title=\"a&nbsp;&amp;&nbsp;&quot;b&quot;\"></span>");
     }
 
     #[test]
