@@ -201,10 +201,49 @@ export function createWindow(document, { url = 'http://localhost/' } = {}) {
   };
 }
 
-import { performance as nodePerformance } from 'node:perf_hooks';
-function performanceNow() {
-  return nodePerformance.now();
-}
+// No static `node:` import — the runtime must load in a bare V8 isolate (no Node,
+// no web-platform globals). Capture the HOST `performance` at module load, BEFORE
+// turbo-dom installs its own `performance` global (else performanceNow → installed
+// performance.now → performanceNow → ∞). Falls back to Date.now() in a bare V8.
+const hostPerformance = globalThis.performance;
+const performanceNow = typeof hostPerformance?.now === 'function'
+  ? () => hostPerformance.now()
+  : () => Date.now();
+
+// base64 without depending on the Node `Buffer` global — prefer the platform
+// btoa/atob, then Buffer (Node), then a pure-JS fallback so a bare-isolate page
+// that calls btoa/atob doesn't throw.
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const turboBtoa = typeof globalThis.btoa === 'function'
+  ? (s) => globalThis.btoa(s)
+  : typeof Buffer !== 'undefined'
+    ? (s) => Buffer.from(String(s), 'binary').toString('base64')
+    : (s) => {
+        const str = String(s); let out = '';
+        for (let i = 0; i < str.length;) {
+          const c1 = str.charCodeAt(i++), c2 = str.charCodeAt(i++), c3 = str.charCodeAt(i++);
+          const e1 = c1 >> 2, e2 = ((c1 & 3) << 4) | (c2 >> 4);
+          let e3 = ((c2 & 15) << 2) | (c3 >> 6), e4 = c3 & 63;
+          if (isNaN(c2)) { e3 = e4 = 64; } else if (isNaN(c3)) { e4 = 64; }
+          out += B64[e1] + B64[e2] + (e3 === 64 ? '=' : B64[e3]) + (e4 === 64 ? '=' : B64[e4]);
+        }
+        return out;
+      };
+const turboAtob = typeof globalThis.atob === 'function'
+  ? (s) => globalThis.atob(s)
+  : typeof Buffer !== 'undefined'
+    ? (s) => Buffer.from(String(s), 'base64').toString('binary')
+    : (s) => {
+        const str = String(s).replace(/[^A-Za-z0-9+/]/g, ''); let out = '';
+        for (let i = 0; i < str.length;) {
+          const e1 = B64.indexOf(str[i++]), e2 = B64.indexOf(str[i++]);
+          const e3 = B64.indexOf(str[i++]), e4 = B64.indexOf(str[i++]);
+          out += String.fromCharCode((e1 << 2) | (e2 >> 4));
+          if (e3 !== -1 && e3 !== 64) out += String.fromCharCode(((e2 & 15) << 4) | (e3 >> 2));
+          if (e4 !== -1 && e4 !== 64) out += String.fromCharCode(((e3 & 3) << 6) | e4);
+        }
+        return out;
+      };
 
 // Resolve the host base classes ONCE, with minimal fallbacks so turbo-dom loads &
 // runs in a bare V8 lacking web-platform globals. Where the platform provides the
@@ -344,8 +383,8 @@ const STATIC_BASE = {
   Headers: globalThis.Headers, Request: globalThis.Request, Response: globalThis.Response,
   FormData: TurboFormData, ReadableStream: globalThis.ReadableStream,
   crypto: globalThis.crypto, Crypto: globalThis.Crypto, SubtleCrypto: globalThis.SubtleCrypto,
-  btoa: (s) => Buffer.from(String(s), 'binary').toString('base64'),
-  atob: (s) => Buffer.from(String(s), 'base64').toString('binary'),
+  btoa: (s) => turboBtoa(String(s)),
+  atob: (s) => turboAtob(String(s)),
   MessageChannel: globalThis.MessageChannel, MessagePort: globalThis.MessagePort,
   BroadcastChannel: globalThis.BroadcastChannel, EventSource: globalThis.EventSource,
   reportError: (e) => { void e; },
