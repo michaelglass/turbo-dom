@@ -306,8 +306,18 @@ LOSES. (Cross-runtime comparison — directional signal, not a controlled in-pro
   the laziness variable): lazy buffer reads **88,651 ops/s** vs eager full-overlay **52,883 ops/s** →
   **lazy 1.68× eager** + 0.38ms up-front inflate avoided. The laziness design wins measurably in-process.
 
-79 rtdom unit tests green (+2 ignored benches). Still skipped as inherently JS-host (not Rust-portable):
-FileReader async, canvas Proxy, customElements ctors, MutationObserver queue, location/history nav.
+- ✅ **"JS-host" surfaces ported** (they were portable — only async-event delivery + JS-class ctors are
+  genuinely JS, and a Rust consumer replaces those with sync/trait APIs): `file.rs` (Blob/File + sync
+  FileReader incl. hand-rolled base64), `canvas.rs` (honest 2D-context stub), `custom_elements.rs`
+  (name→definition registry), `location.rs` (Location URL-parse + History stack), `mutations.rs`
+  (MutationObserver — gated record buffer on `Tree`, sync `take_records`, type/target/subtree/old-value
+  filtering; no-observer path stays zero-alloc).
+- ✅ **Hotspot harness + optimizations** (`bench.rs`): getComputedStyle memo (283×), serialize (4.3×),
+  getElementById cache (~740× repeat). Remaining slowest ops are parse-bound (html5ever).
+
+**100% line coverage on all 15 rtdom modules**, 184 unit tests (+3 ignored benches). The only things
+NOT ported are inherently the JS event-loop / JS-class layer (async FileReader event firing, the
+whenDefined Promise, microtask MutationObserver delivery) — a Rust consumer doesn't want those.
 The JS runtime (`src/runtime/*.mjs`) stays untouched — the path for JS/vitest consumers.
 
 ---
