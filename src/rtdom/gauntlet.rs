@@ -72,6 +72,78 @@ fn full_stack_parse_query_cascade_event_mutate_serialize() {
     assert!(outer.contains("data-testid=\"c2\""));
 }
 
+/// Native in-process throughput on the SAME chatty workload as the JS↔WASM spike
+/// (bench/spike.mjs): qsa-once → per-node getAttribute×2 + tagName + parent-walk.
+/// Run: `cargo test --release --lib rtdom::gauntlet::native -- --ignored --nocapture`.
+/// Zero boundary here — contrast with the spike's WASM-from-JS 0.56× JS result.
+#[test]
+#[ignore]
+fn native_workload_throughput() {
+    use super::tree::Tree;
+    use std::time::Instant;
+
+    let n = 300;
+    let mut html = String::from("<!doctype html><html><body><main class=grid>");
+    for i in 0..n {
+        html.push_str(&format!(
+            "<div class=\"card sx-{}\" data-testid=\"card-{}\" id=\"c{}\"><h2 class=title>T{}</h2><p>body</p><button type=button>Go</button></div>",
+            i % 7, i, i, i
+        ));
+    }
+    html.push_str("</main></body></html>");
+
+    let tree = Tree::parse(&html);
+    let cards = tree.query_selector_all("div.card");
+    assert_eq!(cards.len(), n);
+
+    let workload = || {
+        let mut sink: u64 = 0;
+        for &el in &cards {
+            if let Some(c) = tree.get_attribute(el, "class") {
+                sink += c.len() as u64;
+            }
+            if let Some(t) = tree.get_attribute(el, "data-testid") {
+                sink += t.len() as u64;
+            }
+            if let Some(tag) = tree.tag_name(el) {
+                sink += tag.len() as u64;
+            }
+            let mut p = tree.parent(el);
+            let mut depth = 0u64;
+            while let Some(x) = p {
+                depth += 1;
+                p = tree.parent(x);
+            }
+            sink += depth;
+        }
+        sink
+    };
+
+    let mut best = 0.0f64;
+    let mut sink = 0u64;
+    for _ in 0..6 {
+        for _ in 0..200 {
+            sink = sink.wrapping_add(workload());
+        }
+        let start = Instant::now();
+        let mut iters = 0u64;
+        while start.elapsed().as_millis() < 500 {
+            sink = sink.wrapping_add(workload());
+            iters += 1;
+        }
+        let ops = iters as f64 / start.elapsed().as_secs_f64();
+        if ops > best {
+            best = ops;
+        }
+    }
+    println!(
+        "rtdom native workload: {:.0} ops/s over {} cards (sink {}) — zero boundary",
+        best,
+        n,
+        sink % 100003
+    );
+}
+
 #[test]
 fn innerhtml_then_query_and_serialize() {
     let mut dom = Dom::parse("<div id=root></div>");

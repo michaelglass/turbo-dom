@@ -278,10 +278,24 @@ Verified by `cargo test --lib rtdom`.
 
 **Phase mapping vs the original plan:** Phase 0 (scaffold) ✅, Phase 1 (spike → PIVOT) ✅, Phase 2
 (pure/algorithmic: color/serialize/cascade/selectors) ✅, Phase 3 (chatty core: tree/events; query) ✅
-for the Rust-native API. Remaining: shadow scoping in cascade, full pseudo/attr-operator coverage, a
-native in-process bench quantifying the Rust-consumer win (expected >> JS since zero boundary), and
-optional CSSOM/SVG/stub surfaces if a Rust consumer needs them. The JS runtime (`src/runtime/*.mjs`)
-stays untouched and remains the path for JS/vitest consumers.
+for the Rust-native API, Phase 4 (gauntlet + native bench) ✅.
+
+**Native throughput (Phase-4 bench, `rtdom::gauntlet::native_workload_throughput`, release, 300-card
+chatty workload identical to `bench/spike.mjs`):**
+
+| path | ops/s | vs JS runtime |
+|---|---:|---:|
+| **rtdom native (Rust, zero boundary)** | **107,387** | **~2.7×** |
+| JS runtime (in-process V8) | 39,869 | 1.00× |
+| WASM-from-JS DOM, best case | 22,471 | 0.56× |
+
+Native Rust is ~2.7× the JS runtime and ~4.8× the WASM-from-JS path on the same workload — the
+dual-runtime thesis, measured: the Rust-consumer path WINS (zero boundary), the JS-loads-WASM path
+LOSES. (Cross-runtime comparison — directional signal, not a controlled in-process A/B.)
+
+**Remaining (optional, when a real Rust consumer needs them):** shadow scoping in cascade, full
+attr-operator coverage (`^=`/`$=`/`*=`/`~=`), CSSOM/SVG/stub surfaces, and an ergonomic `NodeRef`
+façade over handles. The JS runtime (`src/runtime/*.mjs`) stays untouched — the path for JS/vitest.
 
 ---
 
