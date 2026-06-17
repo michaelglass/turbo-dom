@@ -7,8 +7,12 @@
 //!   * `query` — selector matching + version-cached querySelectorAll/getElementBy*.
 //!   * `color` — CSS color canonicalization (rgb()/rgba()), pure functions.
 
+pub mod cascade;
 pub mod color;
+pub mod events;
 pub mod query;
+pub mod serialize;
 pub mod tree;
 
+pub use events::{Dom, Event};
 pub use tree::{Handle, Tree};

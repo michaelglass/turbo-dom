@@ -1,0 +1,636 @@
+//! Partial computed-style cascade — pure-Rust port of `src/runtime/cascade.mjs`.
+//!
+//! Resolves `getComputedStyle` from injected `<style>` sheets (emotion/MUI
+//! `.css-HASH { … }`), inline styles, and specificity ordering.
+//!
+//! HONEST: this only ever returns values that come from a REAL matched rule or
+//! inline style (or inherited from one — see `INHERITED`). A property no
+//! stylesheet/inline set still reads `""` — it never invents layout/cascade
+//! numbers or initial values. Out of scope (return `""`): @media/@supports/
+//! @keyframes, :hover & other stateful pseudo-classes, pseudo-elements, the
+//! `inherit`/`initial`/`unset` keywords, CSS custom-property resolution. Colors
+//! ARE canonicalized to rgb()/rgba() (`color.rs`) and bare-0 lengths to `0px`,
+//! matching what a browser serializes.
+
+use crate::rtdom::color;
+use crate::rtdom::tree::{Handle, Tree, ELEMENT_NODE};
+use std::collections::HashMap;
+
+/// camelCase → kebab-case property name (only ever fed kebab from CSS, but kept
+/// for parity with the JS `kebab` used at the proxy boundary).
+fn kebab(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for c in s.chars() {
+        if c.is_ascii_uppercase() {
+            out.push('-');
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Longhand → shorthand fallback for single-token shorthands (mirrors dom.mjs styleGet).
+fn shorthand_of(prop: &str) -> Option<&'static str> {
+    match prop {
+        "background-color" => Some("background"),
+        "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => Some("margin"),
+        "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => Some("padding"),
+        _ => None,
+    }
+}
+
+/// Length properties whose bare `0` real browsers serialize as `0px`.
+const LENGTH_PROPS: &[&str] = &[
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "flex-basis",
+    "gap",
+    "row-gap",
+    "column-gap",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "border-width",
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+    "font-size",
+    "letter-spacing",
+    "word-spacing",
+    "text-indent",
+];
+
+fn is_length_prop(p: &str) -> bool {
+    LENGTH_PROPS.contains(&p)
+}
+
+const BORDER_STYLES: &[&str] = &[
+    "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
+];
+
+/// Inheritable properties propagated down the flattened tree (curated set).
+const INHERITED: &[&str] = &[
+    "color",
+    "cursor",
+    "direction",
+    "font",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-variant",
+    "font-weight",
+    "letter-spacing",
+    "line-height",
+    "list-style",
+    "list-style-type",
+    "text-align",
+    "text-indent",
+    "text-transform",
+    "visibility",
+    "white-space",
+    "word-spacing",
+    "quotes",
+];
+
+/// `<token>` looks like a CSS length/number ("1px", "2.5em", "0", "50%").
+fn looks_like_width_token(p: &str) -> bool {
+    if p == "thin" || p == "medium" || p == "thick" {
+        return true;
+    }
+    // /^[\d.]+(px|em|rem|%|pt|vh|vw)?$/
+    let units = ["px", "em", "rem", "%", "pt", "vh", "vw"];
+    let mut num_end = 0;
+    for (i, c) in p.char_indices() {
+        if c.is_ascii_digit() || c == '.' {
+            num_end = i + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if num_end == 0 {
+        return false; // no leading numeric part
+    }
+    let rest = &p[num_end..];
+    rest.is_empty() || units.contains(&rest)
+}
+
+/// Mirror of the JS `setProp`: store the declaration AND expand common shorthands
+/// into longhands so longhand computed getters resolve.
+fn set_prop(map: &mut HashMap<String, String>, name: &str, val: &str) {
+    map.insert(name.to_string(), val.to_string());
+    if name == "margin" || name == "padding" {
+        let t: Vec<&str> = val.trim().split_whitespace().collect();
+        let top = t.first().copied().unwrap_or("");
+        let right = t.get(1).copied().unwrap_or(top);
+        let bottom = t.get(2).copied().unwrap_or(top);
+        let left = t.get(3).copied().unwrap_or(right);
+        map.insert(format!("{}-top", name), top.to_string());
+        map.insert(format!("{}-right", name), right.to_string());
+        map.insert(format!("{}-bottom", name), bottom.to_string());
+        map.insert(format!("{}-left", name), left.to_string());
+    } else if name == "border" {
+        let mut width: Option<&str> = None;
+        let mut style: Option<&str> = None;
+        let mut color_v: Option<&str> = None;
+        for p in val.trim().split_whitespace() {
+            if BORDER_STYLES.contains(&p) {
+                style = Some(p);
+            } else if looks_like_width_token(p) {
+                width = Some(p);
+            } else {
+                color_v = Some(p);
+            }
+        }
+        if let Some(w) = width {
+            map.insert("border-width".to_string(), w.to_string());
+            for s in ["top", "right", "bottom", "left"] {
+                map.insert(format!("border-{}-width", s), w.to_string());
+            }
+        }
+        if let Some(s) = style {
+            map.insert("border-style".to_string(), s.to_string());
+        }
+        if let Some(c) = color_v {
+            map.insert("border-color".to_string(), c.to_string());
+        }
+    } else if name == "background" && !val.trim().contains(char::is_whitespace) {
+        map.insert("background-color".to_string(), val.trim().to_string());
+    }
+}
+
+/// Strip a trailing `!important` (case-insensitive, surrounding whitespace) from a value.
+fn strip_important(v: &str) -> String {
+    let trimmed = v.trim_end();
+    let lower = trimmed.to_ascii_lowercase();
+    // match /\s*!\s*important\s*$/i — but the JS applied it after .trim() of the
+    // value; here we replicate `!<ws>important` at the (already trimmed) end.
+    if let Some(bang) = lower.rfind('!') {
+        let after = lower[bang + 1..].trim_start();
+        if after == "important" {
+            return trimmed[..bang].trim_end().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+/// Parse a `prop:val;prop:val` declaration block into `map` (later wins).
+fn parse_decls(text: &str, map: &mut HashMap<String, String>) {
+    for decl in text.split(';') {
+        let c = match decl.find(':') {
+            Some(c) => c,
+            None => continue,
+        };
+        let name = decl[..c].trim().to_ascii_lowercase();
+        if name.is_empty() {
+            continue;
+        }
+        let raw = decl[c + 1..].trim();
+        let val = strip_important(raw);
+        set_prop(map, &name, &val);
+    }
+}
+
+/// Rough WHATWG specificity: a*10000 + b*100 + c (ids, classes/attrs/pseudos, types).
+fn specificity(sel: &str) -> u32 {
+    let bytes = sel.as_bytes();
+    let n = bytes.len();
+    let is_ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'-';
+
+    // a: count of `#[\w-]+`
+    let mut a = 0u32;
+    let mut i = 0;
+    while i < n {
+        if bytes[i] == b'#' {
+            let mut j = i + 1;
+            while j < n && is_ident(bytes[j]) {
+                j += 1;
+            }
+            if j > i + 1 {
+                a += 1;
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+
+    // b: count of `\.[\w-]+ | \[[^\]]*\] | :[\w-]+`
+    let mut b = 0u32;
+    i = 0;
+    while i < n {
+        match bytes[i] {
+            b'.' | b':' => {
+                let mut j = i + 1;
+                while j < n && is_ident(bytes[j]) {
+                    j += 1;
+                }
+                if j > i + 1 {
+                    b += 1;
+                    i = j;
+                } else {
+                    i += 1;
+                }
+            }
+            b'[' => {
+                let mut j = i + 1;
+                while j < n && bytes[j] != b']' {
+                    j += 1;
+                }
+                // `[^\]]*` matches zero or more, so `[]` still counts.
+                b += 1;
+                i = if j < n { j + 1 } else { n };
+            }
+            _ => i += 1,
+        }
+    }
+
+    // c: count of `(^|[\s>+~])[a-zA-Z][\w-]*` — a type selector at start or after
+    // a combinator/whitespace.
+    let mut c = 0u32;
+    i = 0;
+    while i < n {
+        let at_boundary = i == 0
+            || matches!(bytes[i - 1], b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'+' | b'~');
+        if at_boundary && bytes[i].is_ascii_alphabetic() {
+            let mut j = i + 1;
+            while j < n && is_ident(bytes[j]) {
+                j += 1;
+            }
+            c += 1;
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+
+    a * 10000 + b * 100 + c
+}
+
+/// Strip `/* … */` comments.
+fn strip_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let bytes = css.as_bytes();
+    let n = bytes.len();
+    let mut i = 0;
+    while i < n {
+        if i + 1 < n && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+        } else {
+            // push the char (handle UTF-8 boundaries via the str slice)
+            let ch_len = utf8_len(bytes[i]);
+            out.push_str(&css[i..(i + ch_len).min(n)]);
+            i += ch_len;
+        }
+    }
+    out
+}
+
+fn utf8_len(b: u8) -> usize {
+    if b < 0x80 {
+        1
+    } else if b < 0xE0 {
+        2
+    } else if b < 0xF0 {
+        3
+    } else {
+        4
+    }
+}
+
+#[derive(Clone)]
+struct Rule {
+    selector: String,
+    decls: HashMap<String, String>,
+    spec: u32,
+    order: u32,
+}
+
+/// Brace-depth scan: emit only depth-1 rules whose selector isn't an at-rule;
+/// the bodies of @media/@keyframes (nested braces) are skipped wholesale.
+fn parse_stylesheet(css: &str, start_order: u32, rules: &mut Vec<Rule>) -> u32 {
+    let css = strip_comments(css);
+    let bytes = css.as_bytes();
+    let n = bytes.len();
+    let mut order = start_order;
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        while j < n && bytes[j] != b'{' && bytes[j] != b'}' {
+            j += 1;
+        }
+        if j >= n {
+            break;
+        }
+        if bytes[j] == b'}' {
+            i = j + 1;
+            continue;
+        }
+        let sel = css[i..j].trim().to_string();
+        let mut depth = 1i32;
+        let mut k = j + 1;
+        while k < n && depth > 0 {
+            match bytes[k] {
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                _ => {}
+            }
+            k += 1;
+        }
+        if !sel.is_empty() && !sel.starts_with('@') {
+            let body = &css[j + 1..k.saturating_sub(1)];
+            let mut decls = HashMap::new();
+            parse_decls(body, &mut decls);
+            if !decls.is_empty() {
+                for part in sel.split(',') {
+                    let t = part.trim();
+                    if !t.is_empty() {
+                        rules.push(Rule {
+                            selector: t.to_string(),
+                            decls: decls.clone(),
+                            spec: specificity(t),
+                            order,
+                        });
+                        order += 1;
+                    }
+                }
+            }
+        } else {
+            order += 1;
+        }
+        i = k;
+    }
+    order
+}
+
+/// Build the rule index from every `<style>` element's text content in the doc.
+fn build_index(tree: &Tree) -> Vec<Rule> {
+    let styles = tree.get_elements_by_tag_name("style");
+    let mut rules = Vec::new();
+    let mut order = 0u32;
+    for h in styles {
+        let text = tree.text_content(h);
+        order = parse_stylesheet(&text, order, &mut rules);
+        // NOTE: the JS also reads emotion `__sheet.cssRules` (speedy-mode injected
+        // via insertRule, never written to textContent). The Rust Tree has no
+        // CSSOM sheet overlay yet — only authored <style> text is available here.
+        // TODO: insertRule-injected rules (emotion speedy mode) once Tree grows a
+        // stylesheet overlay.
+    }
+    rules
+}
+
+/// `:host` / `::slotted` selectors that never match plain elements.
+fn is_shadow_only_selector(sel: &str) -> bool {
+    sel.starts_with(":host") || sel.contains("::slotted(")
+}
+
+/// Collect rules whose selector matches `h` (kind === 'normal' only — shadow
+/// scoping is out of scope for v1).
+fn collect_matched(tree: &Tree, h: Handle, rules: &[Rule], into: &mut Vec<Rule>) {
+    for r in rules {
+        // TODO: shadow scoping — the JS handles :host/::slotted ('host'/'slotted'
+        // kinds). For v1 we only do the light-DOM 'normal' kind and skip
+        // shadow-only selectors (they never match a plain element anyway).
+        if is_shadow_only_selector(&r.selector) {
+            continue;
+        }
+        if tree.matches(h, &r.selector) {
+            into.push(r.clone());
+        }
+    }
+}
+
+/// Sort by (spec, order) then apply in cascade order (later wins).
+fn apply_matched(matched: &mut [Rule], out: &mut HashMap<String, String>) {
+    matched.sort_by(|x, y| x.spec.cmp(&y.spec).then(x.order.cmp(&y.order)));
+    for r in matched.iter() {
+        for (k, v) in &r.decls {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+}
+
+/// Flattened-tree parent for inheritance. v1: the DOM element parent only.
+/// TODO: shadow scoping — the JS hops shadow-root→host at the boundary.
+fn flattened_parent(tree: &Tree, h: Handle) -> Option<Handle> {
+    let p = tree.parent(h)?;
+    if tree.node_type(p) == ELEMENT_NODE {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// Look up a resolved property from the cascade map, applying shorthand fallback,
+/// bare-0 → `0px`, font-family comma spacing, and color canonicalization.
+fn lookup(map: &HashMap<String, String>, prop: &str) -> String {
+    let mut v: Option<String> = map.get(prop).cloned();
+    if v.is_none() {
+        if let Some(sh) = shorthand_of(prop) {
+            if let Some(s) = map.get(sh) {
+                if !s.trim().contains(char::is_whitespace) {
+                    v = Some(s.clone());
+                }
+            }
+        }
+    }
+    let v = match v {
+        Some(v) => v,
+        None => return String::new(),
+    };
+    // px-normalize a bare `0` for length properties (browsers report `0px`)
+    if v == "0" && is_length_prop(prop) {
+        return "0px".to_string();
+    }
+    // font-family: browsers serialize the list with ", " regardless of source spacing.
+    if prop == "font-family" {
+        return normalize_font_family(&v);
+    }
+    // <color> properties → rgb()/rgba() (include_named=true). Unrecognized → passthrough.
+    if color::is_color_prop(prop) {
+        if let Some(c) = color::canonicalize_color(&v, true) {
+            return c;
+        }
+    }
+    v
+}
+
+/// Replace `\s*,\s*` with `, ` (scoped to font-family).
+fn normalize_font_family(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    let mut chars = v.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == ',' {
+            // drop any whitespace we'd already pushed before the comma
+            while out.ends_with(char::is_whitespace) {
+                out.pop();
+            }
+            out.push_str(", ");
+            // skip following whitespace
+            while matches!(chars.peek(), Some(w) if w.is_whitespace()) {
+                chars.next();
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Resolve the full computed-style map for element `h`.
+///
+/// Mirrors `makeGetComputedStyle`'s gcs(el): collect matched `<style>` rules,
+/// sort by (spec, order), apply; overlay inline `style`; then inherit the
+/// curated `INHERITED` set from the flattened parent (only values a REAL
+/// rule/inline set, never an initial value).
+pub fn computed_style(tree: &Tree, h: Handle) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    if tree.node_type(h) != ELEMENT_NODE {
+        return map;
+    }
+
+    let rules = build_index(tree);
+    let mut matched = Vec::new();
+    collect_matched(tree, h, &rules, &mut matched);
+    apply_matched(&mut matched, &mut map);
+
+    // inline style wins over stylesheet rules
+    if let Some(inline) = tree.get_attribute(h, "style") {
+        if !inline.is_empty() {
+            let inline = inline.to_string();
+            parse_decls(&inline, &mut map);
+        }
+    }
+
+    // Inheritance: inherit unset INHERITED props from the flattened parent, using
+    // the parent's already-resolved value (only when a REAL rule/inline set it).
+    if let Some(parent) = flattened_parent(tree, h) {
+        let ps = computed_style(tree, parent);
+        for prop in INHERITED {
+            if !map.contains_key(*prop) {
+                let pv = lookup(&ps, prop);
+                if !pv.is_empty() {
+                    // store the resolved value so child lookups stay consistent
+                    map.insert((*prop).to_string(), pv);
+                }
+            }
+        }
+    }
+
+    map
+}
+
+/// Resolve one property from a computed-style map — `""` for absent (honest).
+pub fn get_property_value(map: &HashMap<String, String>, prop: &str) -> String {
+    lookup(map, &prop.to_ascii_lowercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rtdom::tree::Tree;
+
+    fn gcs_prop(html: &str, selector: &str, prop: &str) -> String {
+        let tree = Tree::parse(html);
+        let h = tree.query_selector_all(selector)[0];
+        let map = computed_style(&tree, h);
+        get_property_value(&map, prop)
+    }
+
+    #[test]
+    fn inline_color_canonicalized() {
+        // (a) inline style="color:red" → rgb(255, 0, 0)
+        let got = gcs_prop(
+            "<div id=x style=\"color:red\">hi</div>",
+            "#x",
+            "color",
+        );
+        assert_eq!(got, "rgb(255, 0, 0)");
+    }
+
+    #[test]
+    fn matched_class_rule_color() {
+        // (b) <style>.card{color:blue}</style> + <div class=card> → blue canonicalized
+        let got = gcs_prop(
+            "<style>.card{color:blue}</style><div class=card>hi</div>",
+            ".card",
+            "color",
+        );
+        assert_eq!(got, "rgb(0, 0, 255)");
+    }
+
+    #[test]
+    fn id_beats_class_specificity() {
+        // (c) #id{color:green} beats .card{color:blue}
+        let got = gcs_prop(
+            "<style>.card{color:blue} #x{color:green}</style><div id=x class=card>hi</div>",
+            "#x",
+            "color",
+        );
+        assert_eq!(got, "rgb(0, 128, 0)"); // green
+    }
+
+    #[test]
+    fn inheritance_cascades_color() {
+        // (d) body{color:red} cascades to a child <p> (color in INHERITED)
+        let got = gcs_prop(
+            "<style>body{color:red}</style><body><p id=p>hi</p></body>",
+            "#p",
+            "color",
+        );
+        assert_eq!(got, "rgb(255, 0, 0)");
+    }
+
+    #[test]
+    fn unmatched_prop_empty() {
+        // (e) unmatched prop → ""
+        let got = gcs_prop(
+            "<div id=x style=\"color:red\">hi</div>",
+            "#x",
+            "font-weight",
+        );
+        assert_eq!(got, "");
+    }
+
+    #[test]
+    fn bare_zero_length_to_px() {
+        // (f) bare-0 length → 0px
+        let got = gcs_prop(
+            "<div id=x style=\"margin:0\">hi</div>",
+            "#x",
+            "margin-top",
+        );
+        assert_eq!(got, "0px");
+    }
+
+    #[test]
+    fn specificity_ordering() {
+        assert!(specificity("#id") > specificity(".card"));
+        assert!(specificity(".card") > specificity("div"));
+        assert_eq!(specificity("#id"), 10000);
+        assert_eq!(specificity(".card"), 100);
+        assert_eq!(specificity("div"), 1);
+        // descendant of two types + a class
+        assert_eq!(specificity("div .card span"), 100 + 2);
+    }
+}
