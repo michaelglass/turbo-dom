@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 /// camelCase → kebab-case property name (only ever fed kebab from CSS, but kept
 /// for parity with the JS `kebab` used at the proxy boundary).
-fn kebab(s: &str) -> String {
+pub fn kebab(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     for c in s.chars() {
         if c.is_ascii_uppercase() {
@@ -645,6 +645,9 @@ pub fn computed_style(tree: &Tree, h: Handle) -> HashMap<String, String> {
 }
 
 /// Resolve one property from a computed-style map — `""` for absent (honest).
+/// `prop` is a CSS property name, matched case-insensitively (kebab, like
+/// `getPropertyValue`). For a camelCase JS-style name, kebab-case it first with
+/// [`kebab`].
 pub fn get_property_value(map: &HashMap<String, String>, prop: &str) -> String {
     lookup(map, &prop.to_ascii_lowercase())
 }
