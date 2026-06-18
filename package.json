@@ -1,6 +1,6 @@
 {
   "name": "@miaskiewicz/turbo-dom",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Faster, more spec-correct DOM for test runners — native html5ever (Rust/WASM) parser + lazy copy-on-write DOM. A drop-in-style alternative to jsdom/happy-dom for vitest & jest.",
   "license": "MIT",
   "main": "index.js",
@@ -76,7 +76,7 @@
     "build:wasm:web": "wasm-pack build --target web --out-dir pkg-web --no-default-features --features wasm-bind",
     "test": "node --test 'test/*.mjs'",
     "test:cov": "node --test --experimental-test-coverage --test-coverage-include='src/runtime/**' --test-coverage-lines=99 --test-coverage-functions=95 --test-coverage-branches=95 'test/*.mjs'",
-    "test:rust": "cargo test --lib",
+    "test:rust": "cargo test --lib --features rust-runtime",
     "test:all": "npm run build && npm run test:rust && npm test",
     "prepare": "git config core.hooksPath .githooks || true",
     "conformance": "node harness/conformance.mjs",
@@ -90,7 +90,11 @@
     "test:vitest": "vitest run -c test-vitest/vitest.config.mjs",
     "test:jest": "jest -c test-jest/jest.config.cjs",
     "bench:query": "node bench/query.mjs",
-    "bench:scorecard": "node bench/scorecard.mjs"
+    "bench:scorecard": "node bench/scorecard.mjs",
+    "conformance:rtdom": "cargo test --lib --features rust-runtime rtdom::conformance::rtdom_html5lib_conformance_full_document -- --nocapture",
+    "build:rtdom": "cargo build --release --no-default-features --features rust-runtime",
+    "bench:compare": "node bench/dom-compare.mjs",
+    "bench:compare:all": "RTDOM_JSON=\"$(cargo test --release --lib --features rust-runtime rtdom::bench::compare_all -- --ignored --nocapture 2>/dev/null | sed -n 's/.*RTDOM_JSON //p')\" node --expose-gc --max-old-space-size=8192 bench/compare-all.mjs"
   },
   "keywords": [
     "dom",

@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "turbo-dom-parser"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "html5ever",
  "markup5ever_rcdom",
@@ -501,6 +501,15 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "turbo-dom-rtdom"
+version = "0.3.0"
+dependencies = [
+ "html5ever",
+ "markup5ever_rcdom",
+ "rustc-hash",
 ]
 
 [[package]]

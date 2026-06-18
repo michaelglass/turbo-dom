@@ -1,6 +1,11 @@
+[workspace]
+# The root package (turbo-dom-parser) plus the standalone Rust-native DOM runtime
+# crate published to crates.io. The parser ships to npm; turbo-dom-rtdom to crates.io.
+members = ["crates/turbo-dom-rtdom"]
+
 [package]
 name = "turbo-dom-parser"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 description = "html5ever-backed native parser for turbo-dom (Layer 1)"
 
@@ -29,6 +34,13 @@ napi-build = { version = "2", optional = true }
 default = ["napi-bind"]
 napi-bind = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 wasm-bind = ["dep:wasm-bindgen", "dep:serde", "dep:serde-wasm-bindgen"]
+# Phase-1 boundary spike: Rust DOM runtime over the SoA, exported to JS via wasm-bindgen.
+wasm-runtime = ["dep:wasm-bindgen"]
+# Pure-Rust DOM runtime (the `rtdom` module). Off by default so the published
+# napi `.node` + wasm parser artifacts stay lean — no JS consumer uses rtdom (a
+# JS-side WASM/napi boundary measured SLOWER than the JS runtime). A Rust consumer
+# adds this crate as a dep and enables this feature; deps are pure std + core.
+rust-runtime = []
 
 [profile.release]
 lto = true

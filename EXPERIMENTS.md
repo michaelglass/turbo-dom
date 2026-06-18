@@ -4,6 +4,12 @@ This is the **exact protocol** for proposing, validating, and shipping a perf ch
 Every change ships ONLY if it passes ALL gates below. No exceptions, no "looks faster",
 no single-run wall-clock claims. Measure everything. Ditch anything that doesn't clearly win.
 
+> Scope: this loop is for the **JS runtime** (`src/runtime/*.mjs`). The Rust-native runtime
+> (`src/rtdom/`) has its own in-process harness — `cargo test --release --lib
+> rtdom::bench::hotspot_report -- --ignored --nocapture` — and its wins are recorded in the
+> commit log + `RUST_PORT_PLAN.md` (e.g. getComputedStyle memo 283×, serialize 4.3×, getElementById
+> cache ~740×). Same discipline (best-of-N, observable sink, controlled A/B), different runtime.
+
 The runtime (`src/runtime/*.mjs`) is pure JS — only the parser is the native `.node`.
 So a runtime change can be **hot-swapped** into a consuming repo's `node_modules` without
 rebuilding: copy the `.mjs` files over.

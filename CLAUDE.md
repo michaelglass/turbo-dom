@@ -17,9 +17,21 @@ npm run build         # native addon → turbo-dom-parser.<platform>.node + inde
 npm run build:wasm    # wasm32 fallback
 npm test              # JS: node --test  (MUST glob: 'test/*.mjs' — `node --test test/` is misparsed on Node 24)
 npm run test:cov      # same suite + coverage gate (runtime lines≥99 / funcs≥92 / branches≥88)
-npm run test:rust     # cargo test --lib  (core unit tests live in src/core.rs #[cfg(test)])
-npm run conformance   # html5lib-tests gate
+npm run test:rust     # cargo test --lib --features rust-runtime  (parser core + rtdom tests)
+npm run conformance   # html5lib-tests gate (parser, JS serializer)
+# --- Rust-native DOM runtime (rtdom) ---
+npm run build:rtdom        # cargo build --release --no-default-features --features rust-runtime
+npm run conformance:rtdom  # html5lib-tests gate run THROUGH the rtdom tree (direct, 99.75%)
 ```
+
+**Two independent runtimes, one repo.** The JS runtime (`src/runtime/*.mjs`, the npm/vitest path)
+and the Rust runtime (`src/rtdom/`, gated behind the off-by-default `rust-runtime` cargo feature, for
+in-process Rust consumers) never touch each other. `pub mod rtdom` is `#[cfg(feature = "rust-runtime")]`
+so the published `.node`/wasm parser artifacts stay lean. rtdom is held to **100% line coverage**
+(`cargo tarpaulin --lib --no-default-features --skip-clean`); its `dump`/`conformance` modules are
+`#[cfg(test)]` gate harness, not shipped. A self-contained extract lives in the workspace-member
+crate `crates/turbo-dom-rtdom` (clean deps, vendorable) — this is what publishes to crates.io as
+`turbo-dom-rtdom` (the `publish-crate` CI job on a `v*` tag). See `RUST_PORT_PLAN.md`.
 
 Toolchain: Node ≥ 24, Rust stable via rustup (`source $HOME/.cargo/env` if cargo isn't on PATH).
 
@@ -45,8 +57,19 @@ lexically and hides `v0.1.10+` below `v0.1.9`).
 
 - `src/core.rs` — the only place html5ever is touched. `parse_html_document`,
   `parse_html_fragment_context`. Returns `core::Node` (plain, no binding deps).
-- `src/lib.rs` — two feature-gated front-ends (`napi-bind` default, `wasm-bind`). Each is a
-  thin `From<core::Node>` / serde conversion. Keep logic in core, not here.
+- `src/lib.rs` — feature-gated front-ends: `napi-bind` (default), `wasm-bind`, the Phase-1
+  `wasm-runtime` spike (`src/spike.rs`), and `rust-runtime` (`src/rtdom/`). The napi/wasm ones
+  are thin `From<core::Node>` / serde conversions — keep logic in core, not here.
+- `src/rtdom/` — **the Rust-native DOM runtime** (`rust-runtime` feature, OFF by default). A
+  pure-Rust port of `src/runtime/` for in-process **Rust** consumers (zero JS boundary → ~2.7×
+  the JS runtime; a JS-side WASM boundary measured 0.55×, so this is Rust-only). Same load-bearing
+  design as the JS runtime: lazy COW `Tree` over the SoA (`tree.rs`, `version` counter = cache key),
+  selectors + version-cached queries (`query.rs`), partial `getComputedStyle` memoized per version
+  (`cascade.rs`), event dispatch with the listener-less fast-skip (`events.rs`), serialize, shadow DOM,
+  plus `color`/`cssom`/`svg`/`file`/`canvas`/`custom_elements`/`location`/`mutations`/`node_ref`.
+  Test-only harness: `dump.rs` (html5lib tree-dump) + `conformance.rs` (direct gate, 99.75%) +
+  `bench.rs`/`gauntlet.rs`. **100% line coverage.** Don't expose rtdom to JS (the boundary loses);
+  the JS path stays `src/runtime/`. Per-commit perf-win → Rust mapping in `RUST_PORT_PERF_HISTORY.md`.
 - `harness/` — JS conformance tooling (dat parser, serializer, runner). All unit-tested.
 - `src/runtime/` — the lazy COW DOM + window (Layers 2–5). `index.mjs` exports
   `createEnvironment(html)` → `{ window, document, reset, touched }`. Nodes inflate lazily

@@ -410,3 +410,20 @@ Impact hierarchy: drop jsdom where unneeded → drop type-checking from runner �
 - COW promotion granularity: node vs subtree vs region — tune via fallback-audit data.
 - Shadow DOM / `<template>` content document handling under COW — likely eager-only v1.
 - Selector engine: reuse existing (e.g. nwsapi-style) over buffer vs custom — correctness first.
+
+## Appendix C — Rust-native runtime (`rtdom`), and the §3 thesis confirmed
+
+§0/§3 argue the runtime must stay in JS for a JS consumer, because a WASM DOM would pay a boundary
+crossing on every chatty access. That was **measured** (Phase-1 spike, `src/spike.rs` + `bench/spike.mjs`):
+a Rust DOM in WASM called from JS is **~0.55×** the JS runtime (best case: whole node-record prefetch +
+cache; naive per-call is ~0.14×). The boundary is a hard floor that zero-crossing in-process JS access
+beats. So the JS-consumer runtime stays in JS, exactly as specified.
+
+The corollary the spec didn't spell out: a **Rust** consumer (crawler/extractor/SSR) has the *opposite*
+boundary situation — in-process Rust, no JS. For that there's now **`rtdom`** (`src/rtdom/`), a pure-Rust
+port of the runtime that applies this spec's same load-bearing ideas (lazy COW tree over the SoA,
+identity by handle, version-keyed caches, partial honest `getComputedStyle`, full event model) natively.
+In-process from Rust it measured **~2.7×** the JS runtime on the chatty workload. So the rule generalizes:
+**put the DOM on the same side of the boundary as its consumer** — JS DOM for JS, Rust DOM for Rust;
+never cross the boundary per-node. See `RUST_PORT_PLAN.md` (architecture) and `RUST_PORT_PERF_HISTORY.md`
+(how each JS perf win maps to Rust: PORTS / V8-SPECIFIC / BOUNDARY / ALREADY-RUST).

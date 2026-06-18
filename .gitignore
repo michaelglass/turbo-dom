@@ -18,3 +18,5 @@ NPM-PUBLISH-TURBODOM.md
 
 # napi-generated per-platform packages (built in CI)
 /npm
+pkg-spike/
+.serena/
