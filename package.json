@@ -92,7 +92,8 @@
     "bench:query": "node bench/query.mjs",
     "bench:scorecard": "node bench/scorecard.mjs",
     "conformance:rtdom": "cargo test --lib --features rust-runtime rtdom::conformance::rtdom_html5lib_conformance_full_document -- --nocapture",
-    "build:rtdom": "cargo build --release --no-default-features --features rust-runtime"
+    "build:rtdom": "cargo build --release --no-default-features --features rust-runtime",
+    "bench:compare": "node bench/dom-compare.mjs"
   },
   "keywords": [
     "dom",
