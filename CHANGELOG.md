@@ -5,6 +5,25 @@ environment for vitest/jest. Format based on [Keep a Changelog](https://keepacha
 Early versions were released as lightweight tags / version-stamped commits (no per-release notes
 at the time); this file reconstructs them from history.
 
+## [Unreleased] — Rust-native DOM runtime (`rtdom`)
+
+Not an npm-package change: the published `@miaskiewicz/turbo-dom` (JS runtime + parser) is
+unaffected — `src/runtime/*.mjs` is byte-identical and the napi/wasm parser API is unchanged.
+
+- **`src/rtdom/`** — a pure-Rust port of the DOM runtime for in-process **Rust** consumers
+  (crawlers/extractors/SSR): lazy COW tree over the SoA, version-cached queries, partial
+  `getComputedStyle`, events, shadow DOM, serialize, plus color/cssom/svg/file/canvas/
+  custom_elements/location/mutations/node_ref. ~2.7× the JS runtime on chatty access (zero
+  boundary); 100% line coverage, 192 tests, a direct html5lib-tests gate at 99.75%.
+- **Build:** gated behind an off-by-default `rust-runtime` cargo feature so the npm `.node`/wasm
+  artifacts stay lean. New scripts: `build:rtdom`, `conformance:rtdom`; `test:rust` now runs
+  `--features rust-runtime`.
+- **Standalone crate** `turbo-dom-rtdom` — self-contained extract (html5ever + rustc-hash only,
+  no napi/wasm), vendorable, with a runnable `examples/crawl.rs`.
+- Architecture + the per-commit JS-perf-win → Rust mapping: `RUST_PORT_PLAN.md`,
+  `RUST_PORT_PERF_HISTORY.md`. (A Phase-1 spike confirmed the spec's thesis: a Rust DOM exposed
+  to JS via WASM is ~0.55× the JS runtime — the boundary loses — so rtdom is Rust-only.)
+
 ## [0.2.4] — virtual-time scheduler (React/MUI hydration)
 - `setClock(fn)` (exported from `@miaskiewicz/turbo-dom/runtime`): injectable clock that both
   `performance.now()` and the `requestAnimationFrame` callback timestamp read through; default =
