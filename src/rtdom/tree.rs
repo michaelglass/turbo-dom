@@ -53,7 +53,8 @@ pub struct Tree {
 #[derive(Default)]
 pub(crate) struct QueryCache {
     pub version: u64,
-    pub map: HashMap<String, Vec<Handle>>,
+    /// Shared so a cache hit is a pointer bump, not a Vec copy (repeated qSA is hot).
+    pub map: HashMap<String, std::rc::Rc<[Handle]>>,
 }
 
 impl Tree {

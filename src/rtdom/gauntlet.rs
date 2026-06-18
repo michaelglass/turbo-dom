@@ -98,7 +98,7 @@ fn native_workload_throughput() {
 
     let workload = || {
         let mut sink: u64 = 0;
-        for &el in &cards {
+        for &el in cards.iter() {
             if let Some(c) = tree.get_attribute(el, "class") {
                 sink += c.len() as u64;
             }
@@ -168,7 +168,7 @@ fn lazy_vs_eager_ab() {
         let cards = tree.query_selector_all("div.card");
         let work = || {
             let mut sink: u64 = 0;
-            for &el in &cards {
+            for &el in cards.iter() {
                 if let Some(c) = tree.get_attribute(el, "class") { sink += c.len() as u64; }
                 if let Some(t) = tree.get_attribute(el, "data-testid") { sink += t.len() as u64; }
                 for c in tree.children(el) { sink += tree.node_type(c) as u64; }

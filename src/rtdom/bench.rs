@@ -80,7 +80,7 @@ fn compare_all() {
     let cards = tree.query_selector_all("div.card");
     let per_node = bench(|| {
         let mut s = 0u64;
-        for &el in &cards {
+        for &el in cards.iter() {
             if let Some(c) = tree.get_attribute(el, "class") { s += c.len() as u64; }
             if let Some(t) = tree.get_attribute(el, "data-testid") { s += t.len() as u64; }
             if let Some(t) = tree.tag_name(el) { s += t.len() as u64; }
@@ -125,7 +125,7 @@ fn hotspot_report() {
     // 5. getAttribute over all cards (per-node buffer scan)
     rows.push(("getAttribute x3/card".into(), bench(|| {
         let mut s = 0u64;
-        for &c in &cards {
+        for &c in cards.iter() {
             s += base.get_attribute(c, "class").map_or(0, |v| v.len() as u64);
             s += base.get_attribute(c, "data-testid").map_or(0, |v| v.len() as u64);
             s += base.get_attribute(c, "id").map_or(0, |v| v.len() as u64);
@@ -136,7 +136,7 @@ fn hotspot_report() {
     // 6. computed_style per card (cascade — rebuilds the rule index each call?)
     rows.push(("getComputedStyle/card".into(), bench(|| {
         let mut s = 0u64;
-        for &c in &cards {
+        for &c in cards.iter() {
             s += cascade::computed_style(&base, c).len() as u64;
         }
         s

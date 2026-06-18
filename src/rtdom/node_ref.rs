@@ -176,7 +176,8 @@ impl<'a> NodeRef<'a> {
     pub fn query_selector(&self, selector: &str) -> Option<NodeRef<'a>> {
         self.tree
             .query_selector_all(selector)
-            .into_iter()
+            .iter()
+            .copied()
             .find(|&h| self.is_descendant(h))
             .map(|h| self.wrap(h))
     }
@@ -185,7 +186,8 @@ impl<'a> NodeRef<'a> {
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeRef<'a>> {
         self.tree
             .query_selector_all(selector)
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|&h| self.is_descendant(h))
             .map(|h| self.wrap(h))
             .collect()
@@ -241,8 +243,8 @@ impl DocumentExt for Tree {
 
     fn query_all(&self, sel: &str) -> Vec<NodeRef<'_>> {
         self.query_selector_all(sel)
-            .into_iter()
-            .map(|h| NodeRef::new(self, h))
+            .iter()
+            .map(|&h| NodeRef::new(self, h))
             .collect()
     }
 }

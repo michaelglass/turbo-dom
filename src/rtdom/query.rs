@@ -563,8 +563,10 @@ impl Tree {
         })
     }
 
-    /// querySelectorAll, document-order, version-cached by selector string.
-    pub fn query_selector_all(&self, selector: &str) -> Vec<Handle> {
+    /// querySelectorAll, document-order, version-cached by selector string. Returns a
+    /// shared `Rc<[Handle]>` so a cache hit (the common RTL repeated-query case) is a
+    /// pointer bump — no Vec copy. Deref to `&[Handle]` for `.len()`/`[i]`/`.iter()`.
+    pub fn query_selector_all(&self, selector: &str) -> std::rc::Rc<[Handle]> {
         {
             let mut cache = self.qcache.borrow_mut();
             if cache.version != self.version {
@@ -598,8 +600,9 @@ impl Tree {
                 out.push(h);
             }
         }
-        self.qcache.borrow_mut().map.insert(selector.to_string(), out.clone());
-        out
+        let rc: std::rc::Rc<[Handle]> = out.into();
+        self.qcache.borrow_mut().map.insert(selector.to_string(), rc.clone());
+        rc
     }
 
     pub fn query_selector(&self, selector: &str) -> Option<Handle> {
