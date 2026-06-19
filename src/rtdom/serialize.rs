@@ -28,19 +28,20 @@ fn is_raw_text(tag: &str) -> bool {
     RAW_TEXT.contains(&tag)
 }
 
-/// Append `s` text-escaped (`&`→`&amp;`, ` `→`&nbsp;`, `<`→`&lt;`, `>`→`&gt;`) into
-/// `out` in a single pass. Per-original-char mapping is identical to the JS chained
-/// `replace` (no char a replacement emits is itself a replacement target). Fast path:
-/// no special byte → push the slice whole (zero alloc, no scan-rewrite).
+/// Append `s` text-escaped (`&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`) into `out` in a single
+/// pass. Regular spaces are kept AS spaces — escaping them to `&nbsp;` (a quirk of the
+/// old JS serializer) is wrong for HTML: it changes the text to non-breaking spaces, so
+/// a re-parse / accessible-name / text query sees U+00A0 instead of a space and
+/// whitespace-normalized matching fails. Fast path: no special byte → push the slice
+/// whole (zero alloc, no scan-rewrite).
 fn push_escaped_text(out: &mut String, s: &str) {
-    if !s.bytes().any(|b| matches!(b, b'&' | b' ' | b'<' | b'>')) {
+    if !s.bytes().any(|b| matches!(b, b'&' | b'<' | b'>')) {
         out.push_str(s);
         return;
     }
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
-            ' ' => out.push_str("&nbsp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             _ => out.push(c),
@@ -48,16 +49,16 @@ fn push_escaped_text(out: &mut String, s: &str) {
     }
 }
 
-/// Append `s` attribute-escaped (`&`→`&amp;`, ` `→`&nbsp;`, `"`→`&quot;`) into `out`.
+/// Append `s` attribute-escaped (`&`→`&amp;`, `"`→`&quot;`) into `out`. Spaces are kept
+/// (a quoted attribute value preserves them verbatim — no need for `&nbsp;`).
 fn push_escaped_attr(out: &mut String, s: &str) {
-    if !s.bytes().any(|b| matches!(b, b'&' | b' ' | b'"')) {
+    if !s.bytes().any(|b| matches!(b, b'&' | b'"')) {
         out.push_str(s);
         return;
     }
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
-            ' ' => out.push_str("&nbsp;"),
             '"' => out.push_str("&quot;"),
             _ => out.push(c),
         }
@@ -195,8 +196,8 @@ mod tests {
         let span = tree.get_elements_by_tag_name("span")[0];
         tree.set_attribute(span, "title", "a & \"b\"");
         let html = serialize_outer(&tree, span);
-        // & → &amp;, " → &quot;, space → &nbsp; (matching escape_attr semantics)
-        assert_eq!(html, "<span title=\"a&nbsp;&amp;&nbsp;&quot;b&quot;\"></span>");
+        // & → &amp;, " → &quot;; spaces kept verbatim in a quoted attribute value.
+        assert_eq!(html, "<span title=\"a &amp; &quot;b&quot;\"></span>");
     }
 
     #[test]
@@ -216,12 +217,10 @@ mod tests {
     }
 
     #[test]
-    fn space_escaped_as_nbsp() {
+    fn spaces_kept_verbatim() {
+        // Regular spaces serialize AS spaces (not &nbsp;) — text and attribute alike.
         let tree = Tree::parse("<div title=\"a b\">x y</div>");
         let div = first_div(&tree);
-        assert_eq!(
-            serialize_outer(&tree, div),
-            "<div title=\"a&nbsp;b\">x&nbsp;y</div>"
-        );
+        assert_eq!(serialize_outer(&tree, div), "<div title=\"a b\">x y</div>");
     }
 }
