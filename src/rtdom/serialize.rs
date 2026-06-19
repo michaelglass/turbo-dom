@@ -35,7 +35,8 @@ fn is_raw_text(tag: &str) -> bool {
 /// whitespace-normalized matching fails. Fast path: no special byte → push the slice
 /// whole (zero alloc, no scan-rewrite).
 fn push_escaped_text(out: &mut String, s: &str) {
-    if !s.bytes().any(|b| matches!(b, b'&' | b'<' | b'>')) {
+    // 0xC2 is the UTF-8 lead byte of U+00A0 (the non-breaking space we DO escape).
+    if !s.bytes().any(|b| matches!(b, b'&' | b'<' | b'>' | 0xC2)) {
         out.push_str(s);
         return;
     }
@@ -44,6 +45,7 @@ fn push_escaped_text(out: &mut String, s: &str) {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
+            '\u{A0}' => out.push_str("&nbsp;"),
             _ => out.push(c),
         }
     }
@@ -52,7 +54,7 @@ fn push_escaped_text(out: &mut String, s: &str) {
 /// Append `s` attribute-escaped (`&`→`&amp;`, `"`→`&quot;`) into `out`. Spaces are kept
 /// (a quoted attribute value preserves them verbatim — no need for `&nbsp;`).
 fn push_escaped_attr(out: &mut String, s: &str) {
-    if !s.bytes().any(|b| matches!(b, b'&' | b'"')) {
+    if !s.bytes().any(|b| matches!(b, b'&' | b'"' | 0xC2)) {
         out.push_str(s);
         return;
     }
@@ -60,6 +62,7 @@ fn push_escaped_attr(out: &mut String, s: &str) {
         match c {
             '&' => out.push_str("&amp;"),
             '"' => out.push_str("&quot;"),
+            '\u{A0}' => out.push_str("&nbsp;"),
             _ => out.push(c),
         }
     }
@@ -217,10 +220,13 @@ mod tests {
     }
 
     #[test]
-    fn spaces_kept_verbatim() {
-        // Regular spaces serialize AS spaces (not &nbsp;) — text and attribute alike.
+    fn regular_spaces_kept_nbsp_char_escaped() {
+        // Regular spaces serialize AS spaces; only the non-breaking space (U+00A0) → &nbsp;.
         let tree = Tree::parse("<div title=\"a b\">x y</div>");
         let div = first_div(&tree);
         assert_eq!(serialize_outer(&tree, div), "<div title=\"a b\">x y</div>");
+        let tree2 = Tree::parse("<p>x\u{A0}y</p>");
+        let p = tree2.get_elements_by_tag_name("p")[0];
+        assert_eq!(serialize_outer(&tree2, p), "<p>x&nbsp;y</p>");
     }
 }

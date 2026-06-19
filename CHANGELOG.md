@@ -5,6 +5,15 @@ environment for vitest/jest. Format based on [Keep a Changelog](https://keepacha
 Early versions were released as lightweight tags / version-stamped commits (no per-release notes
 at the time); this file reconstructs them from history.
 
+## [0.3.5]
+
+### Fixed
+- `rtdom::serialize` no longer escapes regular spaces to `&nbsp;` (a quirk carried over
+  from the old JS serializer). It corrupted serialized text into U+00A0 non-breaking
+  spaces, so a re-parse / accessible-name / text query saw `"a b"` instead of
+  `"a b"` and whitespace-normalized matching (getByRole/getByText/toHaveText on a
+  serialized DOM) failed. Spaces now serialize verbatim; only `&`/`<`/`>`/`"` are escaped.
+
 ## [Unreleased] — Rust-native DOM runtime (`rtdom`)
 
 Not an npm-package change: the published `@miaskiewicz/turbo-dom` (JS runtime + parser) is
