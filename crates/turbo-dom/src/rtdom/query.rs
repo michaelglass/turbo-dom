@@ -527,46 +527,41 @@ impl Tree {
     }
 
     /// Does `h` match the full complex selector, anchored at its rightmost compound?
+    /// Recursive with backtracking: a descendant combinator tries EVERY matching
+    /// ancestor, not just the nearest, so a mixed chain such as `.a > .b .c` — where
+    /// the `.b` that is a direct child of `.a` is *farther* from `.c` than another
+    /// `.b` — is matched correctly. A greedy nearest-ancestor walk would miss it.
     fn matches_complex(&self, h: Handle, cx: &Complex) -> bool {
-        let n = cx.parts.len();
-        let (_, last) = &cx.parts[n - 1];
-        if !self.matches_compound(h, last) {
+        self.matches_chain(h, cx, cx.parts.len() - 1)
+    }
+
+    /// Match `cx.parts[0..=k]` ending at element `h`. The combinator stored on part
+    /// `k` connects it to part `k-1` (see `parse_complex`).
+    fn matches_chain(&self, h: Handle, cx: &Complex, k: usize) -> bool {
+        if !self.matches_compound(h, &cx.parts[k].1) {
             return false;
         }
-        // walk leftwards matching ancestors
-        let mut cur = h;
-        for k in (0..n - 1).rev() {
-            let (combinator, compound) = &cx.parts[k];
-            match combinator_for(cx, k + 1) {
-                Combinator::Child => {
-                    let p = match self.parent(cur) {
-                        Some(p) => p,
-                        None => return false,
-                    };
-                    if !self.matches_compound(p, compound) {
-                        return false;
-                    }
-                    cur = p;
-                }
-                Combinator::Descendant => {
-                    let mut anc = self.parent(cur);
-                    let mut found = None;
-                    while let Some(a) = anc {
-                        if self.matches_compound(a, compound) {
-                            found = Some(a);
-                            break;
-                        }
-                        anc = self.parent(a);
-                    }
-                    match found {
-                        Some(a) => cur = a,
-                        None => return false,
-                    }
-                }
-            }
-            let _ = combinator; // combinator stored on the RIGHT part; see combinator_for
+        if k == 0 {
+            return true; // matched the leftmost compound — the whole chain is satisfied
         }
-        true
+        match cx.parts[k].0 {
+            // the direct parent must match the remaining prefix
+            Combinator::Child => match self.parent(h) {
+                Some(p) => self.matches_chain(p, cx, k - 1),
+                None => false,
+            },
+            // ANY ancestor may match the remaining prefix — try each, backtracking
+            Combinator::Descendant => {
+                let mut anc = self.parent(h);
+                while let Some(a) = anc {
+                    if self.matches_chain(a, cx, k - 1) {
+                        return true;
+                    }
+                    anc = self.parent(a);
+                }
+                false
+            }
+        }
     }
 
     pub fn matches(&self, h: Handle, selector: &str) -> bool {
@@ -677,11 +672,6 @@ impl Tree {
         }
         out
     }
-}
-
-/// The combinator that connects part `k` to part `k-1` is stored on part `k`.
-fn combinator_for(cx: &Complex, k: usize) -> Combinator {
-    cx.parts[k].0
 }
 
 #[cfg(test)]
@@ -1035,5 +1025,26 @@ mod tests {
         // a specific tag, case-insensitive
         assert_eq!(tree.get_elements_by_tag_name("P").len(), 1);
         assert_eq!(tree.get_elements_by_tag_name("nope").len(), 0);
+    }
+
+    #[test]
+    fn descendant_then_child_backtracks() {
+        // `.a > .b .c`: a `.c` inside a `.b` that is a DIRECT child of `.a`.
+        // The matching `.b` (the outer one) is a child of `.a`; a *nearer* `.b`
+        // (the inner one) is NOT a child of `.a`. A greedy nearest-ancestor matcher
+        // picks the inner `.b`, fails the `> .a` child check, and wrongly reports no
+        // match. The correct answer is 1 — the outer `.b` satisfies the chain.
+        let tree = Tree::parse(
+            "<div class=a>\
+               <div class=b>\
+                 <div class=x>\
+                   <div class=b>\
+                     <div class=c>c</div>\
+                   </div>\
+                 </div>\
+               </div>\
+             </div>",
+        );
+        assert_eq!(tree.query_selector_all(".a > .b .c").len(), 1);
     }
 }
