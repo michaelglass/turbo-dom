@@ -4,83 +4,195 @@
 // comma selector lists, and :not(), :first-child, :last-child, :only-child,
 // :empty, :root. Enough for React Testing Library usage.
 
-const ATTR_RE = /\[\s*([^\]=~^$*|\s]+)\s*(?:([~^$*|]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\]]*?))\s*)?\]/y;
+// ── Tokenizer + recursive-descent parser ─────────────────────────────────────
+// The selector string is first turned into a flat token stream by `tokenize`,
+// which centrally handles the two things an ad-hoc character scanner keeps
+// getting wrong: quoted strings and balanced `[]`/`()` runs. The grammar layer
+// (`parseCompound`/`parseComplexTokens`) then only ever sees whole tokens, so it
+// never has to re-discover where an attribute or pseudo argument ends. The AST
+// it emits — `{ compounds[], combinators[] }` with the same compound/attr/pseudo
+// object shapes — is exactly what the matcher below consumes, unchanged.
+//
+// Token kinds:
+//   { k:'comma' }                       a top-level ','
+//   { k:'ws' }                          a run of whitespace (a candidate descendant combinator)
+//   { k:'comb', v:'>'|'+'|'~' }         an explicit combinator
+//   { k:'star' }                        '*'
+//   { k:'type', v }                     a type/element name
+//   { k:'id',    v }                    '#name'
+//   { k:'class', v }                    '.name'
+//   { k:'attr', name, op, value }       '[ … ]' (op null + value null ⇒ presence)
+//   { k:'pseudo', name, arg }           ':name' / ':name( arg )' (arg null ⇒ no parens)
 
-function parseCompound(src, i) {
-  const compound = { tag: null, id: null, classes: [], attrs: [], pseudos: [] };
-  let matchedAny = false;
-  while (i < src.length) {
+const NAME_CHAR = /[a-zA-Z0-9_-]/;
+function isTypeStart(c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+function isWs(c) {
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+}
+
+// Split a raw `[ … ]` interior into { name, op, value }. The first '=' (if any)
+// splits name from value; an operator char (~ | ^ $ *) immediately before it
+// selects the operator. A surrounding matching quote pair on the value is
+// stripped. No '=' ⇒ a presence test (op null, value null).
+function parseAttr(inner) {
+  const eq = inner.indexOf('=');
+  if (eq === -1) return { name: inner.trim(), op: null, value: null };
+  let name = inner.slice(0, eq);
+  let op = '=';
+  const last = name[name.length - 1];
+  if (last === '~' || last === '|' || last === '^' || last === '$' || last === '*') {
+    op = last + '=';
+    name = name.slice(0, -1);
+  }
+  let value = inner.slice(eq + 1).trim();
+  if (
+    value.length >= 2 &&
+    ((value[0] === '"' && value[value.length - 1] === '"') ||
+      (value[0] === "'" && value[value.length - 1] === "'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return { name: name.trim(), op, value };
+}
+
+function tokenize(src) {
+  const tokens = [];
+  const n = src.length;
+  let i = 0;
+  while (i < n) {
     const c = src[i];
-    if (c === '*') { compound.tag = '*'; i++; matchedAny = true; continue; }
-    if (/[a-zA-Z]/.test(c) && compound.tag === null && compound.id === null && !compound.classes.length && !compound.attrs.length && !compound.pseudos.length) {
-      let j = i;
-      while (j < src.length && /[a-zA-Z0-9_-]/.test(src[j])) j++;
-      compound.tag = src.slice(i, j).toLowerCase();
-      i = j; matchedAny = true; continue;
+    if (isWs(c)) {
+      i++;
+      while (i < n && isWs(src[i])) i++;
+      tokens.push({ k: 'ws' });
+      continue;
     }
+    if (c === ',') { tokens.push({ k: 'comma' }); i++; continue; }
+    if (c === '>' || c === '+' || c === '~') { tokens.push({ k: 'comb', v: c }); i++; continue; }
+    if (c === '*') { tokens.push({ k: 'star' }); i++; continue; }
     if (c === '#') {
       let j = i + 1;
-      while (j < src.length && /[a-zA-Z0-9_-]/.test(src[j])) j++;
-      compound.id = src.slice(i + 1, j); i = j; matchedAny = true; continue;
+      while (j < n && NAME_CHAR.test(src[j])) j++;
+      tokens.push({ k: 'id', v: src.slice(i + 1, j) });
+      i = j; continue;
     }
     if (c === '.') {
       let j = i + 1;
-      while (j < src.length && /[a-zA-Z0-9_-]/.test(src[j])) j++;
-      compound.classes.push(src.slice(i + 1, j)); i = j; matchedAny = true; continue;
+      while (j < n && NAME_CHAR.test(src[j])) j++;
+      tokens.push({ k: 'class', v: src.slice(i + 1, j) });
+      i = j; continue;
     }
     if (c === '[') {
-      ATTR_RE.lastIndex = i;
-      const m = ATTR_RE.exec(src);
-      if (!m) throw new SyntaxError(`bad attribute selector at ${src.slice(i)}`);
-      compound.attrs.push({ name: m[1], op: m[2] || null, value: m[3] ?? m[4] ?? m[5] ?? null });
-      i = ATTR_RE.lastIndex; matchedAny = true; continue;
+      // scan to the matching ']' — a ']' inside a quoted value is not the closer
+      let j = i + 1, quote = null;
+      while (j < n) {
+        const d = src[j];
+        if (quote) { if (d === quote) quote = null; j++; continue; }
+        if (d === '"' || d === "'") { quote = d; j++; continue; }
+        if (d === ']') break;
+        j++;
+      }
+      if (j >= n) throw new SyntaxError(`unterminated attribute selector: ${src.slice(i)}`);
+      tokens.push({ k: 'attr', ...parseAttr(src.slice(i + 1, j)) });
+      i = j + 1; continue;
     }
     if (c === ':') {
       let j = i + 1;
-      while (j < src.length && /[a-zA-Z-]/.test(src[j])) j++;
+      while (j < n && (isTypeStart(src[j]) || src[j] === '-')) j++;
       const name = src.slice(i + 1, j);
       let arg = null;
-      if (src[j] === '(') {
-        let depth = 1, k = j + 1;
-        while (k < src.length && depth > 0) { if (src[k] === '(') depth++; else if (src[k] === ')') depth--; k++; }
-        arg = src.slice(j + 1, k - 1);
-        j = k;
+      if (j < n && src[j] === '(') {
+        // balanced parens (quotes respected) so a nested ':not(:nth-child(2))'
+        // or a quoted ')' survives intact for the recursive parse.
+        let depth = 1, k = j + 1, quote = null;
+        for (; k < n; k++) {
+          const d = src[k];
+          if (quote) { if (d === quote) quote = null; continue; }
+          if (d === '"' || d === "'") quote = d;
+          else if (d === '(') depth++;
+          else if (d === ')') { depth--; if (depth === 0) break; }
+        }
+        arg = src.slice(j + 1, k);
+        i = k < n ? k + 1 : n;
+      } else {
+        i = j;
       }
-      compound.pseudos.push({ name, arg });
-      i = j; matchedAny = true; continue;
+      tokens.push({ k: 'pseudo', name, arg });
+      continue;
     }
-    break;
+    if (isTypeStart(c)) {
+      let j = i + 1;
+      while (j < n && NAME_CHAR.test(src[j])) j++;
+      tokens.push({ k: 'type', v: src.slice(i, j) });
+      i = j; continue;
+    }
+    throw new SyntaxError(`unexpected '${c}' in selector`);
   }
-  if (!matchedAny) throw new SyntaxError(`empty compound at ${src.slice(i)}`);
-  return { compound, i };
+  return tokens;
 }
 
-// Parse one complex selector into compounds[] + combinators[] (combinator[k]
-// relates compounds[k] to compounds[k+1], left to right).
-function parseComplex(src) {
-  let i = 0;
+// compound := [type|'*'] ( '#'id | '.'class | '['attr']' | ':'pseudo )*  — but
+// lenient: parts may appear in any order/multiplicity, and a redundant type/'*'
+// after the first is dropped (so `div[id=x]y` ≡ `div[id=x]`). Consuming an empty
+// compound (no parts at all, e.g. a leading combinator) is a SyntaxError.
+function parseCompound(tokens, pos, end) {
+  const compound = { tag: null, id: null, classes: [], attrs: [], pseudos: [] };
+  let matched = false;
+  while (pos < end) {
+    const t = tokens[pos];
+    if (t.k === 'star') { if (compound.tag === null) compound.tag = '*'; }
+    else if (t.k === 'type') { if (compound.tag === null) compound.tag = t.v.toLowerCase(); }
+    else if (t.k === 'id') { compound.id = t.v; }
+    else if (t.k === 'class') { compound.classes.push(t.v); }
+    else if (t.k === 'attr') { compound.attrs.push({ name: t.name, op: t.op, value: t.value }); }
+    else if (t.k === 'pseudo') { compound.pseudos.push({ name: t.name, arg: t.arg }); }
+    else break; // ws / comb / comma ends the compound
+    pos++; matched = true;
+  }
+  if (!matched) throw new SyntaxError(`empty compound at token ${pos}`);
+  return { compound, pos };
+}
+
+// Parse tokens[lo..hi) (one complex selector — commas already split out) into
+// compounds[] + combinators[] (combinator[k] relates compounds[k] to
+// compounds[k+1], left to right).
+function parseComplexTokens(tokens, lo, hi) {
   const compounds = [];
   const combinators = [];
-  src = src.trim();
-  while (i < src.length) {
-    while (src[i] === ' ') i++;
-    const r = parseCompound(src, i);
-    compounds.push(r.compound);
-    i = r.i;
-    // read optional combinator
-    let sawSpace = false;
-    while (src[i] === ' ') { sawSpace = true; i++; }
-    if (i >= src.length) break;
-    if (src[i] === '>' || src[i] === '+' || src[i] === '~') {
-      combinators.push(src[i]); i++;
-      while (src[i] === ' ') i++;
-    } else if (sawSpace) {
-      combinators.push(' ');
+  // trim leading / trailing ws tokens (mirrors the old `src.trim()`)
+  let start = lo, end = hi;
+  while (start < end && tokens[start].k === 'ws') start++;
+  while (end > start && tokens[end - 1].k === 'ws') end--;
+  if (start >= end) return { compounds, combinators }; // empty selector ⇒ empty parse (no throw)
+  let r = parseCompound(tokens, start, end);
+  compounds.push(r.compound);
+  let pos = r.pos;
+  while (pos < end) {
+    while (pos < end && tokens[pos].k === 'ws') pos++; // a ws run here ⇒ candidate descendant
+    const t = tokens[pos];
+    if (t.k === 'comb') {
+      combinators.push(t.v);
+      pos++;
+      while (pos < end && tokens[pos].k === 'ws') pos++;
+      if (pos >= end) break; // dangling combinator (`a >`) — keep it, no trailing compound
     } else {
-      throw new SyntaxError(`unexpected '${src[i]}' in selector`);
+      // the only token that can follow a compound after a ws run is the next
+      // compound's first part ⇒ a descendant combinator
+      combinators.push(' ');
     }
+    r = parseCompound(tokens, pos, end);
+    compounds.push(r.compound);
+    pos = r.pos;
   }
   return { compounds, combinators };
+}
+
+// Parse one complex selector STRING (no top-level comma). Exposed via `_internal`.
+function parseComplex(src) {
+  const tokens = tokenize(src);
+  return parseComplexTokens(tokens, 0, tokens.length);
 }
 
 // parsed-selector cache: querySelector(All)/matches re-run the same selector
@@ -90,23 +202,18 @@ const __selectorCache = new Map();
 export function parseSelectorList(selector) {
   const hit = __selectorCache.get(selector);
   if (hit !== undefined) return hit;
-  const parsed = splitTopLevel(selector, ',').map((s) => parseComplex(s.trim()));
+  const tokens = tokenize(selector);
+  const parsed = [];
+  let start = 0;
+  for (let i = 0; i <= tokens.length; i++) {
+    if (i === tokens.length || tokens[i].k === 'comma') {
+      parsed.push(parseComplexTokens(tokens, start, i));
+      start = i + 1;
+    }
+  }
   if (__selectorCache.size > 10000) __selectorCache.clear();
   __selectorCache.set(selector, parsed);
   return parsed;
-}
-
-function splitTopLevel(s, sep) {
-  const out = [];
-  let depth = 0, last = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === '(' || c === '[') depth++;
-    else if (c === ')' || c === ']') depth--;
-    else if (c === sep && depth === 0) { out.push(s.slice(last, i)); last = i + 1; }
-  }
-  out.push(s.slice(last));
-  return out;
 }
 
 function matchAttr(el, a) {
