@@ -19,3 +19,17 @@ html5ever = "0.39"
 markup5ever_rcdom = "0.39"
 # Fast non-crypto hashing for SoA string interning (parse hot path).
 rustc-hash = "2"
+
+# --- SPIKE: Servo's selector engine, gated behind `selectors-engine` ---
+# OFF by default so the default build keeps the advertised 3-dep / vendorable
+# profile. Enable to route Tree::matches/query_selector* through `selectors`.
+selectors = { version = "0.38", optional = true }
+cssparser = { version = "0.37", optional = true }
+# `selectors`' string associated types require `PrecomputedHash`; we implement it
+# on our own `CssString` wrapper, so we need to name the trait directly.
+precomputed-hash = { version = "0.1", optional = true }
+
+[features]
+# SPIKE flag. When ON, the hand-rolled query.rs engine is compiled out and the
+# public Tree selector methods delegate to src/rtdom/sel.rs (Servo `selectors`).
+selectors-engine = ["dep:selectors", "dep:cssparser", "dep:precomputed-hash"]

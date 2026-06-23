@@ -6,7 +6,13 @@
 //! compounds of `tag` / `.class` / `#id` / `[attr]` / `[attr=val]`. Enough for
 //! RTL-style queries; extend as the gauntlet demands.
 
-use super::tree::{Handle, NodeType, Tree};
+// SPIKE: when the `selectors-engine` feature is on, the hand-rolled engine below
+// is compiled out and `src/rtdom/sel.rs` provides the `Tree` selector methods.
+// The whole engine is wrapped in `mod handrolled` so a single cfg toggles it; the
+// `#[cfg(test)] mod tests` at the bottom runs against WHICHEVER engine is active.
+#[cfg(not(feature = "selectors-engine"))]
+mod handrolled {
+use super::super::tree::{Handle, NodeType, Tree};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AttrOp {
@@ -677,6 +683,7 @@ impl Tree {
         out
     }
 }
+} // mod handrolled
 
 #[cfg(test)]
 mod tests {

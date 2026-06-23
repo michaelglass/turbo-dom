@@ -18,6 +18,10 @@ pub mod location;
 pub mod mutations;
 pub mod node_ref;
 pub mod query;
+/// SPIKE: Servo `selectors`-based engine (feature `selectors-engine`). When on,
+/// it provides the `Tree` selector methods and `query.rs`'s are compiled out.
+#[cfg(feature = "selectors-engine")]
+pub mod sel;
 pub mod serialize;
 pub mod stubs;
 pub mod svg;
