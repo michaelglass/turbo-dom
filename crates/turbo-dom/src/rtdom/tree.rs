@@ -33,7 +33,9 @@ pub struct Tree {
     buf_len: u32,
     new_nodes: Vec<NewNode>,
     // --- COW overlays (present only for mutated/created nodes) ---
-    parent_ov: HashMap<Handle, i32>,
+    // `Some(parent)` = re-parented; `None` = detached. No `-1` sentinel — a
+    // detached node is `None`, never a handle that happens to read as negative.
+    parent_ov: HashMap<Handle, Option<Handle>>,
     children_ov: HashMap<Handle, Vec<Handle>>,
     attrs_ov: HashMap<Handle, Vec<(String, String)>>,
     text_ov: HashMap<Handle, String>,
@@ -137,7 +139,7 @@ impl Tree {
 
     pub fn parent(&self, h: Handle) -> Option<Handle> {
         if let Some(&p) = self.parent_ov.get(&h) {
-            return if p < 0 { None } else { Some(p as Handle) };
+            return p;
         }
         if self.is_new(h) {
             return None; // detached unless set via overlay
@@ -457,7 +459,7 @@ impl Tree {
     pub fn append_child(&mut self, parent: Handle, child: Handle) {
         self.detach(child);
         self.ensure_children(parent).push(child);
-        self.parent_ov.insert(child, parent as i32);
+        self.parent_ov.insert(child, Some(parent));
         self.bump();
         self.record(crate::rtdom::mutations::MutationRecord::child_list(parent, vec![child], vec![]));
     }
@@ -469,14 +471,14 @@ impl Tree {
             Some(idx) => list.insert(idx, child),
             None => list.push(child),
         }
-        self.parent_ov.insert(child, parent as i32);
+        self.parent_ov.insert(child, Some(parent));
         self.bump();
         self.record(crate::rtdom::mutations::MutationRecord::child_list(parent, vec![child], vec![]));
     }
 
     pub fn remove_child(&mut self, parent: Handle, child: Handle) {
         self.ensure_children(parent).retain(|&x| x != child);
-        self.parent_ov.insert(child, -1);
+        self.parent_ov.insert(child, None);
         self.bump();
         self.record(crate::rtdom::mutations::MutationRecord::child_list(parent, vec![], vec![child]));
     }
@@ -497,7 +499,7 @@ impl Tree {
                 Vec::new()
             } else {
                 let t = self.create_text_node(text);
-                self.parent_ov.insert(t, h as i32);
+                self.parent_ov.insert(t, Some(h));
                 vec![t]
             };
             self.children_ov.insert(h, added.clone());
@@ -618,7 +620,7 @@ impl Tree {
             kids.push(self.import_node(c));
         }
         for &k in &kids {
-            self.parent_ov.insert(k, h as i32);
+            self.parent_ov.insert(k, Some(h));
         }
         self.children_ov.insert(h, kids);
         self.bump();
@@ -729,7 +731,7 @@ impl Tree {
                     kids.push(self.import_node(c));
                 }
                 for &k in &kids {
-                    self.parent_ov.insert(k, h as i32);
+                    self.parent_ov.insert(k, Some(h));
                 }
                 self.children_ov.insert(h, kids);
                 h
