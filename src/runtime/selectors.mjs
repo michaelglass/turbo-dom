@@ -250,43 +250,41 @@ function matchCompound(el, compound) {
 // Match a parsed complex selector against `el` (the rightmost compound applies to el).
 function matchComplex(el, cx) {
   const { compounds, combinators } = cx;
-  const last = compounds.length - 1;
-  if (!matchCompound(el, compounds[last])) return false;
+  return matchChain(el, compounds, combinators, compounds.length - 1);
+}
 
-  // walk leftward
-  let idx = last - 1;
-  let current = el;
-  while (idx >= 0) {
-    const comb = combinators[idx]; // relation between compounds[idx] and compounds[idx+1]
-    const target = compounds[idx];
-    if (comb === ' ') {
-      let anc = current.parentNode;
-      let matched = false;
-      while (anc && anc.nodeType === 1) {
-        if (matchCompound(anc, target)) { current = anc; matched = true; break; }
-        anc = anc.parentNode;
-      }
-      if (!matched) return false;
-    } else if (comb === '>') {
-      const parent = current.parentNode;
-      if (!parent || parent.nodeType !== 1 || !matchCompound(parent, target)) return false;
-      current = parent;
-    } else if (comb === '+') {
-      const prev = previousElement(current);
-      if (!prev || !matchCompound(prev, target)) return false;
-      current = prev;
-    } else if (comb === '~') {
-      let prev = previousElement(current);
-      let matched = false;
-      while (prev) {
-        if (matchCompound(prev, target)) { current = prev; matched = true; break; }
-        prev = previousElement(prev);
-      }
-      if (!matched) return false;
-    }
-    idx--;
+// Match compounds[0..=k] ending at `el`, recursing leftward. Descendant (' ') and
+// general-sibling ('~') combinators try EVERY candidate ancestor/sibling and
+// backtrack — committing to the nearest one (the old greedy walk) wrongly rejected
+// chains like `.a > .b .c` where a farther `.b` is the one that is a child of `.a`.
+// combinators[i] is the relation between compounds[i] and compounds[i+1].
+function matchChain(el, compounds, combinators, k) {
+  if (!matchCompound(el, compounds[k])) return false;
+  if (k === 0) return true; // matched the leftmost compound — whole chain satisfied
+  const comb = combinators[k - 1]; // relation between compounds[k-1] and compounds[k]
+  if (comb === '>') {
+    const p = el.parentNode;
+    return !!p && p.nodeType === 1 && matchChain(p, compounds, combinators, k - 1);
   }
-  return true;
+  if (comb === '+') {
+    const prev = previousElement(el);
+    return !!prev && matchChain(prev, compounds, combinators, k - 1);
+  }
+  if (comb === ' ') {
+    let anc = el.parentNode;
+    while (anc && anc.nodeType === 1) {
+      if (matchChain(anc, compounds, combinators, k - 1)) return true;
+      anc = anc.parentNode;
+    }
+    return false;
+  }
+  // '~' general sibling
+  let prev = previousElement(el);
+  while (prev) {
+    if (matchChain(prev, compounds, combinators, k - 1)) return true;
+    prev = previousElement(prev);
+  }
+  return false;
 }
 
 export function matchesSelector(el, selector) {
