@@ -8,7 +8,7 @@
 use html5ever::driver::ParseOpts;
 use html5ever::tendril::TendrilSink;
 use html5ever::tree_builder::TreeBuilderOpts;
-use html5ever::{parse_document, parse_fragment, local_name, namespace_url, ns, LocalName, QualName};
+use html5ever::{parse_document, parse_fragment, ns, LocalName, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
 /// DOM nodeType constants (subset html5ever can emit).
