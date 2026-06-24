@@ -143,26 +143,12 @@ impl<'a> NodeRef<'a> {
 
     /// Next sibling that is an element.
     pub fn next_element_sibling(&self) -> Option<NodeRef<'a>> {
-        let mut cur = self.tree.next_sibling(self.handle);
-        while let Some(h) = cur {
-            if self.tree.node_type(h) == NodeType::Element {
-                return Some(self.wrap(h));
-            }
-            cur = self.tree.next_sibling(h);
-        }
-        None
+        self.tree.next_element_sibling(self.handle).map(|h| self.wrap(h))
     }
 
     /// Previous sibling that is an element.
     pub fn previous_element_sibling(&self) -> Option<NodeRef<'a>> {
-        let mut cur = self.tree.previous_sibling(self.handle);
-        while let Some(h) = cur {
-            if self.tree.node_type(h) == NodeType::Element {
-                return Some(self.wrap(h));
-            }
-            cur = self.tree.previous_sibling(h);
-        }
-        None
+        self.tree.previous_element_sibling(self.handle).map(|h| self.wrap(h))
     }
 
     // ---------------------------------------------------------------- queries

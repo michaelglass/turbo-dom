@@ -16,6 +16,20 @@ use super::tree::{Handle, NodeType, Tree};
 /// unbounded stream of unique selectors, so a hard ceiling keeps it from leaking.
 const CACHE_CAP: usize = 10_000;
 
+/// Insert `(key, val)` into a `CACHE_CAP`-bounded map, clearing it wholesale first
+/// if it has reached the cap. Shared by the parse cache and the two query caches so
+/// the clear-on-overflow idiom lives in one place.
+fn bounded_insert<K: std::hash::Hash + Eq, V>(
+    map: &mut rustc_hash::FxHashMap<K, V>,
+    key: K,
+    val: V,
+) {
+    if map.len() >= CACHE_CAP {
+        map.clear();
+    }
+    map.insert(key, val);
+}
+
 /// How an `[attr...]` test compares against the element's attribute value. The
 /// operator and its operand are ONE inseparable thing: a presence test `[attr]`
 /// carries no value, and every value-bearing operator carries its value. This
@@ -374,14 +388,31 @@ fn parse_relative_selector_list(src: &str) -> Vec<RelativeSelector> {
     split_top_level_commas(src)
         .into_iter()
         .filter_map(|seg| {
-            let seg = seg.trim_start();
-            let (combinator, rest) = match seg.as_bytes().first() {
-                Some(b'>') => (Combinator::Child, &seg[1..]),
-                Some(b'+') => (Combinator::Adjacent, &seg[1..]),
-                Some(b'~') => (Combinator::GeneralSibling, &seg[1..]),
-                _ => (Combinator::Descendant, seg),
+            // Tokenize once, then strip the leading combinator at the TOKEN level
+            // (mirrors the JS parseRelativeSelectorList): skip a leading `Ws`, then
+            // peek for a `Gt`/`Plus`/`Tilde` combinator token — combinator recognition
+            // stays inside the lexer rather than re-spelled on raw bytes.
+            let toks = tokenize(seg);
+            let mut lo = 0;
+            while matches!(toks.get(lo), Some(Token::Ws)) {
+                lo += 1; // skip the segment's leading whitespace
+            }
+            let combinator = match toks.get(lo) {
+                Some(Token::Gt) => {
+                    lo += 1;
+                    Combinator::Child
+                }
+                Some(Token::Plus) => {
+                    lo += 1;
+                    Combinator::Adjacent
+                }
+                Some(Token::Tilde) => {
+                    lo += 1;
+                    Combinator::GeneralSibling
+                }
+                _ => Combinator::Descendant,
             };
-            parse_complex(rest.trim()).map(|complex| RelativeSelector { combinator, complex })
+            parse_complex_tokens(&toks[lo..]).map(|complex| RelativeSelector { combinator, complex })
         })
         .collect()
 }
@@ -509,7 +540,13 @@ fn parse_attr(inner: &str) -> Attr {
 /// lands in `rest` (so `a >` parses to `Complex { first: a, rest: [] }` and
 /// matches exactly what `a` matches).
 fn parse_complex(src: &str) -> Option<Complex> {
-    let toks = tokenize(src);
+    parse_complex_tokens(&tokenize(src))
+}
+
+/// Token-level `parse_complex`: run the compound/combinator loop over an
+/// already-tokenized slice. Mirrors the JS `parseComplexTokens` so a caller that
+/// has tokenized once (e.g. the `:has()` relative parse) can hand off a sub-slice.
+fn parse_complex_tokens(toks: &[Token]) -> Option<Complex> {
     let mut first: Option<Compound> = None;
     let mut rest: Vec<(Combinator, Compound)> = Vec::new();
     let mut combinator = Combinator::Descendant;
@@ -530,7 +567,7 @@ fn parse_complex(src: &str) -> Option<Complex> {
                 i += 1;
             }
             _ => {
-                let c = parse_compound_tokens(&toks, &mut i);
+                let c = parse_compound_tokens(toks, &mut i);
                 if first.is_none() {
                     // the head carries no combinator (a leading `>` is inert)
                     first = Some(c);
@@ -607,7 +644,8 @@ impl Tree {
 
     /// The immediately-preceding ELEMENT sibling of `h` (walking `previous_sibling`
     /// and skipping text/comment nodes). Mirrors selectors.mjs `previousElement`.
-    fn previous_element_sibling(&self, h: Handle) -> Option<Handle> {
+    /// The single source of the element-skipping sibling walk (node_ref.rs wraps it).
+    pub(crate) fn previous_element_sibling(&self, h: Handle) -> Option<Handle> {
         let mut n = self.previous_sibling(h);
         while let Some(s) = n {
             if self.node_type(s) == NodeType::Element {
@@ -620,7 +658,8 @@ impl Tree {
 
     /// The immediately-FOLLOWING element sibling of `h` (walking `next_sibling`,
     /// skipping text/comment nodes). Mirrors selectors.mjs `nextElement`.
-    fn next_element_sibling(&self, h: Handle) -> Option<Handle> {
+    /// The single source of the element-skipping sibling walk (node_ref.rs wraps it).
+    pub(crate) fn next_element_sibling(&self, h: Handle) -> Option<Handle> {
         let mut n = self.next_sibling(h);
         while let Some(s) = n {
             if self.node_type(s) == NodeType::Element {
@@ -783,7 +822,7 @@ impl Tree {
     /// the `.b` that is a direct child of `.a` is *farther* from `.c` than another
     /// `.b` — is matched correctly. A greedy nearest-ancestor walk would miss it.
     fn matches_complex(&self, h: Handle, cx: &Complex) -> bool {
-        self.matches_chain(h, cx, cx.rest.len(), None)
+        self.matches_complex_scoped(h, cx, None)
     }
 
     /// Match the chain prefix ending at position `k` against element `h`. The
@@ -904,16 +943,9 @@ impl Tree {
         if let Some(hit) = self.parse_cache.borrow().get(selector) {
             return hit.clone();
         }
-        let list: std::rc::Rc<[Complex]> = split_top_level_commas(selector)
-            .into_iter()
-            .filter_map(|s| parse_complex(s.trim()))
-            .collect::<Vec<_>>()
-            .into();
+        let list: std::rc::Rc<[Complex]> = parse_selector_list_str(selector).into();
         let mut cache = self.parse_cache.borrow_mut();
-        if cache.len() >= CACHE_CAP {
-            cache.clear();
-        }
-        cache.insert(selector.to_string(), list.clone());
+        bounded_insert(&mut cache, selector.to_string(), list.clone());
         list
     }
 
@@ -966,10 +998,7 @@ impl Tree {
             // Bound the cache (parity with the JS __selectorCache cap): once it grows
             // past CACHE_CAP distinct keys, clear it wholesale rather than grow
             // unbounded. A pathological caller cycling unique selectors can't leak.
-            if cache.map.len() >= CACHE_CAP {
-                cache.map.clear();
-            }
-            cache.map.insert(selector.to_string(), rc.clone());
+            bounded_insert(&mut cache.map, selector.to_string(), rc.clone());
         }
         rc
     }
@@ -1011,10 +1040,7 @@ impl Tree {
         }
         {
             let mut cache = self.qcache.borrow_mut();
-            if cache.map.len() >= CACHE_CAP {
-                cache.map.clear();
-            }
-            cache.map.insert(key, found.into_iter().collect());
+            bounded_insert(&mut cache.map, key, found.into_iter().collect());
         }
         found
     }
