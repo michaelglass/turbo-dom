@@ -853,11 +853,10 @@ impl Tree {
     fn has_match(&self, h: Handle, rel: &RelativeSelector) -> bool {
         match rel.combinator {
             Combinator::Descendant => {
-                // every descendant of `h`, capping the relative complex's own
+                // every descendant ELEMENT of `h`, capping the relative complex's own
                 // ancestor walk at `h` so a multi-compound `.a .b` stays in scope.
-                self.descendants(h)
-                    .into_iter()
-                    .any(|d| self.matches_complex_scoped(d, &rel.complex, Some(h)))
+                // some_descendant short-circuits without materializing a Vec.
+                self.some_descendant(h, |d| self.matches_complex_scoped(d, &rel.complex, Some(h)))
             }
             Combinator::Child => {
                 let mut found = false;

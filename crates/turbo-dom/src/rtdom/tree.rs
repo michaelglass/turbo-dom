@@ -955,6 +955,27 @@ impl Tree {
         out
     }
 
+    /// Short-circuiting DFS over `root`'s descendant ELEMENTS (excluding `root`):
+    /// returns true as soon as `pred` does, WITHOUT materializing a descendant
+    /// `Vec`. Children are pushed alloc-free (push then reverse the just-added
+    /// segment) so traversal stays document-order. Mirrors the JS `someDescendant`;
+    /// the alloc-free alternative to `descendants(h).into_iter().any(...)`.
+    pub(crate) fn some_descendant(&self, root: Handle, mut pred: impl FnMut(Handle) -> bool) -> bool {
+        let mut stack: Vec<Handle> = Vec::new();
+        let base = stack.len();
+        self.for_each_child(root, |c| stack.push(c));
+        stack[base..].reverse();
+        while let Some(h) = stack.pop() {
+            if self.node_type(h) == NodeType::Element && pred(h) {
+                return true;
+            }
+            let base = stack.len();
+            self.for_each_child(h, |c| stack.push(c));
+            stack[base..].reverse();
+        }
+        false
+    }
+
     /// Light-DOM nodes assigned to `slot` (a `<slot>` inside a shadow tree):
     /// the host's light element children whose `slot` attr equals the slot's
     /// `name` (default "" ↔ unnamed slot). Mirrors `assignedNodes`.
@@ -1121,6 +1142,38 @@ mod tests {
         let txt = t4.create_text_node("hello");
         t4.for_each_attr(txt, |_, _| count += 1);
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn some_descendant_short_circuits_over_elements() {
+        let tree = t("<div id=root><section><span class=hit>x</span><b>y</b></section></div>");
+        let root = tree.handles().find(|&h| tree.local_name(h) == Some("div")).unwrap();
+        // finds a descendant element matching the predicate
+        assert!(tree.some_descendant(root, |d| tree.get_attribute(d, "class") == Some("hit")));
+        // no matching descendant → false
+        assert!(!tree.some_descendant(root, |d| tree.local_name(d) == Some("nope")));
+        // visits ONLY elements: a text node is never passed to the predicate
+        let mut saw_non_element = false;
+        tree.some_descendant(root, |d| {
+            if tree.node_type(d) != NodeType::Element {
+                saw_non_element = true;
+            }
+            false
+        });
+        assert!(!saw_non_element);
+        // short-circuit: stops at the first match (predicate call count bounded)
+        let mut calls = 0;
+        let found = tree.some_descendant(root, |d| {
+            calls += 1;
+            tree.local_name(d) == Some("section")
+        });
+        assert!(found);
+        assert_eq!(calls, 1, "section is the first descendant element → exactly one call");
+        // a node with no descendants → false, no calls
+        let empty = tree.handles().find(|&h| tree.local_name(h) == Some("b")).unwrap();
+        let mut ec = 0;
+        assert!(!tree.some_descendant(empty, |_| { ec += 1; true }));
+        assert_eq!(ec, 0);
     }
 
     #[test]
