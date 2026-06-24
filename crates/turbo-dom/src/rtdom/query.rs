@@ -954,6 +954,10 @@ mod tests {
         assert_eq!(tree.text_content(r[0]), "a");
     }
 
+    // Hand-rolled-parser leniency: malformed `div[id=x]y` (type after attr) — the
+    // hand-rolled parser drops the trailing `y` (1 hit); the `selectors` crate rejects
+    // the whole selector (0). Assertion only holds for the hand-rolled engine.
+    #[cfg(not(feature = "selectors-engine"))]
     #[test]
     fn compound_trailing_non_part_byte() {
         // After consuming a `[...]` attr the next byte is a plain char (not .#[:),
