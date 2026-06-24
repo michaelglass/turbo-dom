@@ -10,6 +10,12 @@
 
 use super::tree::{Handle, NodeType, Tree};
 
+/// Max distinct entries held in the version-keyed query cache (`Tree.qcache`)
+/// before it is cleared wholesale. Mirrors the JS `__selectorCache` cap (10000):
+/// the cache exists for the repeated-query RTL pattern, not to memoize an
+/// unbounded stream of unique selectors, so a hard ceiling keeps it from leaking.
+const CACHE_CAP: usize = 10_000;
+
 /// How an `[attr...]` test compares against the element's attribute value. The
 /// operator and its operand are ONE inseparable thing: a presence test `[attr]`
 /// carries no value, and every value-bearing operator carries its value. This
@@ -926,7 +932,16 @@ impl Tree {
             }
         }
         let rc: std::rc::Rc<[Handle]> = out.into();
-        self.qcache.borrow_mut().map.insert(selector.to_string(), rc.clone());
+        {
+            let mut cache = self.qcache.borrow_mut();
+            // Bound the cache (parity with the JS __selectorCache cap): once it grows
+            // past CACHE_CAP distinct keys, clear it wholesale rather than grow
+            // unbounded. A pathological caller cycling unique selectors can't leak.
+            if cache.map.len() >= CACHE_CAP {
+                cache.map.clear();
+            }
+            cache.map.insert(selector.to_string(), rc.clone());
+        }
         rc
     }
 
@@ -965,7 +980,13 @@ impl Tree {
                 stack.push(c);
             }
         }
-        self.qcache.borrow_mut().map.insert(key, found.into_iter().collect());
+        {
+            let mut cache = self.qcache.borrow_mut();
+            if cache.map.len() >= CACHE_CAP {
+                cache.map.clear();
+            }
+            cache.map.insert(key, found.into_iter().collect());
+        }
         found
     }
 
