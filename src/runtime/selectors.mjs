@@ -428,22 +428,25 @@ function matchComplex(el, cx) {
 // backtrack — committing to the nearest one (the old greedy walk) wrongly rejected
 // chains like `.a > .b .c` where a farther `.b` is the one that is a child of `.a`.
 // `cx.rest[k-1].combinator` is the relation between compounds k-1 and k.
-function matchChain(el, cx, k) {
+// `boundary` (optional) caps the ancestor/parent walk for `:has()` scoping: a step
+// that reaches it has left the scope → reject. Omitted/undefined for normal matching
+// (the walk is unbounded), so this also serves matchComplex and sibling candidates.
+function matchChain(el, cx, k, boundary) {
   if (!matchCompound(el, compoundAt(cx, k))) return false;
   if (k === 0) return true; // matched the leftmost compound — whole chain satisfied
   const comb = cx.rest[k - 1].combinator; // relation between compounds k-1 and k
   if (comb === '>') {
     const p = el.parentNode;
-    return !!p && p.nodeType === 1 && matchChain(p, cx, k - 1);
+    return !!p && p.nodeType === 1 && p !== boundary && matchChain(p, cx, k - 1, boundary);
   }
   if (comb === '+') {
     const prev = previousElement(el);
-    return !!prev && matchChain(prev, cx, k - 1);
+    return !!prev && matchChain(prev, cx, k - 1, boundary);
   }
   if (comb === ' ') {
     let anc = el.parentNode;
-    while (anc && anc.nodeType === 1) {
-      if (matchChain(anc, cx, k - 1)) return true;
+    while (anc && anc.nodeType === 1 && anc !== boundary) {
+      if (matchChain(anc, cx, k - 1, boundary)) return true;
       anc = anc.parentNode;
     }
     return false;
@@ -451,7 +454,7 @@ function matchChain(el, cx, k) {
   // '~' general sibling
   let prev = previousElement(el);
   while (prev) {
-    if (matchChain(prev, cx, k - 1)) return true;
+    if (matchChain(prev, cx, k - 1, boundary)) return true;
     prev = previousElement(prev);
   }
   return false;
@@ -506,35 +509,7 @@ function someDescendant(node, pred) {
 // relative complex cannot escape the scope element's subtree. `boundary === null`
 // makes this exactly matchComplex (used for sibling candidates).
 function matchComplexScoped(el, cx, boundary) {
-  return matchChainScoped(el, cx, cx.rest.length, boundary);
-}
-function matchChainScoped(el, cx, k, boundary) {
-  if (!matchCompound(el, compoundAt(cx, k))) return false;
-  if (k === 0) return true;
-  const comb = cx.rest[k - 1].combinator;
-  if (comb === '>') {
-    const p = el.parentNode;
-    return !!p && p.nodeType === 1 && p !== boundary && matchChainScoped(p, cx, k - 1, boundary);
-  }
-  if (comb === '+') {
-    const prev = previousElement(el);
-    return !!prev && matchChainScoped(prev, cx, k - 1, boundary);
-  }
-  if (comb === ' ') {
-    let anc = el.parentNode;
-    while (anc && anc.nodeType === 1 && anc !== boundary) {
-      if (matchChainScoped(anc, cx, k - 1, boundary)) return true;
-      anc = anc.parentNode;
-    }
-    return false;
-  }
-  // '~' general sibling
-  let prev = previousElement(el);
-  while (prev) {
-    if (matchChainScoped(prev, cx, k - 1, boundary)) return true;
-    prev = previousElement(prev);
-  }
-  return false;
+  return matchChain(el, cx, cx.rest.length, boundary);
 }
 
 export function matchesSelector(el, selector) {

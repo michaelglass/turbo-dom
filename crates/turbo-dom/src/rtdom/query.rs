@@ -773,30 +773,37 @@ impl Tree {
     /// the `.b` that is a direct child of `.a` is *farther* from `.c` than another
     /// `.b` — is matched correctly. A greedy nearest-ancestor walk would miss it.
     fn matches_complex(&self, h: Handle, cx: &Complex) -> bool {
-        self.matches_chain(h, cx, cx.rest.len())
+        self.matches_chain(h, cx, cx.rest.len(), None)
     }
 
     /// Match the chain prefix ending at position `k` against element `h`. The
     /// combinator in `rest[k-1]` connects position `k` to position `k-1`
     /// (see `parse_complex`); position 0 (the head) has no combinator.
-    fn matches_chain(&self, h: Handle, cx: &Complex, k: usize) -> bool {
+    fn matches_chain(&self, h: Handle, cx: &Complex, k: usize, boundary: Option<Handle>) -> bool {
         if !self.matches_compound(h, Self::compound_at(cx, k)) {
             return false;
         }
         if k == 0 {
             return true; // matched the leftmost compound — the whole chain is satisfied
         }
+        // A parent/ancestor step that reaches `boundary` (the `:has()` scope element)
+        // leaves the scope → reject. For normal matching `boundary` is `None`, so
+        // `within` is always true and this is the plain unbounded walk.
+        let within = |p: Handle| boundary != Some(p);
         match cx.rest[k - 1].0 {
             // the direct parent must match the remaining prefix
             Combinator::Child => match self.parent(h) {
-                Some(p) => self.matches_chain(p, cx, k - 1),
-                None => false,
+                Some(p) if within(p) => self.matches_chain(p, cx, k - 1, boundary),
+                _ => false,
             },
             // ANY ancestor may match the remaining prefix — try each, backtracking
             Combinator::Descendant => {
                 let mut anc = self.parent(h);
                 while let Some(a) = anc {
-                    if self.matches_chain(a, cx, k - 1) {
+                    if !within(a) {
+                        break; // reached the scope boundary — stop ascending
+                    }
+                    if self.matches_chain(a, cx, k - 1, boundary) {
                         return true;
                     }
                     anc = self.parent(a);
@@ -806,7 +813,7 @@ impl Tree {
             // the IMMEDIATELY-preceding element sibling must match the prefix
             // (single step — mirrors the JS `'+'` arm).
             Combinator::Adjacent => match self.previous_element_sibling(h) {
-                Some(prev) => self.matches_chain(prev, cx, k - 1),
+                Some(prev) => self.matches_chain(prev, cx, k - 1, boundary),
                 None => false,
             },
             // ANY preceding element sibling may match the prefix — try each,
@@ -815,7 +822,7 @@ impl Tree {
             Combinator::GeneralSibling => {
                 let mut prev = self.previous_element_sibling(h);
                 while let Some(p) = prev {
-                    if self.matches_chain(p, cx, k - 1) {
+                    if self.matches_chain(p, cx, k - 1, boundary) {
                         return true;
                     }
                     prev = self.previous_element_sibling(p);
@@ -870,58 +877,7 @@ impl Tree {
     /// relative complex cannot escape the scope element's subtree. With `None`
     /// boundary this is exactly `matches_complex` (used for sibling candidates).
     fn matches_complex_scoped(&self, h: Handle, cx: &Complex, boundary: Option<Handle>) -> bool {
-        self.matches_chain_scoped(h, cx, cx.rest.len(), boundary)
-    }
-
-    fn matches_chain_scoped(
-        &self,
-        h: Handle,
-        cx: &Complex,
-        k: usize,
-        boundary: Option<Handle>,
-    ) -> bool {
-        if !self.matches_compound(h, Self::compound_at(cx, k)) {
-            return false;
-        }
-        if k == 0 {
-            return true;
-        }
-        // a parent step that would reach `boundary` (the scope element) or above
-        // leaves the scope → reject (the relative selector must stay inside).
-        let within = |p: Handle| boundary != Some(p);
-        match cx.rest[k - 1].0 {
-            Combinator::Child => match self.parent(h) {
-                Some(p) if within(p) => self.matches_chain_scoped(p, cx, k - 1, boundary),
-                _ => false,
-            },
-            Combinator::Descendant => {
-                let mut anc = self.parent(h);
-                while let Some(a) = anc {
-                    if !within(a) {
-                        break; // reached the scope boundary — stop ascending
-                    }
-                    if self.matches_chain_scoped(a, cx, k - 1, boundary) {
-                        return true;
-                    }
-                    anc = self.parent(a);
-                }
-                false
-            }
-            Combinator::Adjacent => match self.previous_element_sibling(h) {
-                Some(prev) => self.matches_chain_scoped(prev, cx, k - 1, boundary),
-                None => false,
-            },
-            Combinator::GeneralSibling => {
-                let mut prev = self.previous_element_sibling(h);
-                while let Some(p) = prev {
-                    if self.matches_chain_scoped(p, cx, k - 1, boundary) {
-                        return true;
-                    }
-                    prev = self.previous_element_sibling(p);
-                }
-                false
-            }
-        }
+        self.matches_chain(h, cx, cx.rest.len(), boundary)
     }
 
     pub fn matches(&self, h: Handle, selector: &str) -> bool {
