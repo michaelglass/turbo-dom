@@ -4,8 +4,8 @@
 //!
 //! Selector support: comma lists, descendant (` `), child (`>`), adjacent (`+`)
 //! and general-sibling (`~`) combinators, compounds of `tag` / `.class` / `#id` /
-//! `[attr]` / `[attr=val]`. Enough for RTL-style queries; extend as the gauntlet
-//! demands.
+//! `[attr]` / `[attr=val]`, and the `:is()` / `:where()` / `:not()` selector-list
+//! pseudo-classes. Enough for RTL-style queries; extend as the gauntlet demands.
 
 use super::tree::{Handle, NodeType, Tree};
 
@@ -86,8 +86,13 @@ enum Pseudo {
     ReadOnly,
     ReadWrite,
     Selected,
-    // Negation of a simple compound
-    Not(Box<Compound>),
+    // Matching pseudos whose argument is a SELECTOR LIST (comma-separated complex
+    // selectors), each anchored at the element under test. `:where` matches
+    // identically to `:is` (the specificity difference is a cascade concern, out of
+    // scope here); `:not` is the negation (NONE of the list may match).
+    Is(Vec<Complex>),
+    Where(Vec<Complex>),
+    Not(Vec<Complex>),
     // Unrecognized / unparseable → never matches
     Unknown,
 }
@@ -302,13 +307,42 @@ fn parse_compound_tokens(toks: &[Token], i: &mut usize) -> Compound {
     c
 }
 
-/// Parse a whole string as a SINGLE compound (for a `:not(...)` argument). Mirrors
-/// the old `parse_compound(arg.trim())`: leading/trailing whitespace is ignored and
-/// any trailing combinator content is dropped (the AST holds one compound).
-fn parse_compound_str(src: &str) -> Compound {
-    let toks = tokenize(src.trim());
-    let mut i = 0;
-    parse_compound_tokens(&toks, &mut i)
+/// Split a selector string on TOP-LEVEL commas only — commas inside `[...]`,
+/// `(...)`, or quoted strings are NOT separators. Mirrors the JS `splitTopLevel`
+/// and is required now that `:is()/:where()/:not()` arguments hold comma-separated
+/// lists: a naive `split(',')` would break `li:not(.a, .b)` mid-paren.
+fn split_top_level_commas(src: &str) -> Vec<&str> {
+    let bytes = src.as_bytes();
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut quote: Option<u8> = None;
+    let mut last = 0usize;
+    for (i, &b) in bytes.iter().enumerate() {
+        if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            }
+        } else if b == b'"' || b == b'\'' {
+            quote = Some(b);
+        } else if b == b'(' || b == b'[' {
+            depth += 1;
+        } else if b == b')' || b == b']' {
+            depth -= 1;
+        } else if b == b',' && depth == 0 {
+            out.push(&src[last..i]);
+            last = i + 1;
+        }
+    }
+    out.push(&src[last..]);
+    out
+}
+
+/// Parse a pseudo argument as a SELECTOR LIST (comma-separated complex selectors)
+/// for `:is(...)` / `:where(...)` / `:not(...)`. Each non-empty segment becomes a
+/// `Complex` (reusing `parse_complex`); empty segments are dropped. A single-item
+/// list is the degenerate `:not(.x)` case, so existing behavior is preserved.
+fn parse_selector_list_str(src: &str) -> Vec<Complex> {
+    split_top_level_commas(src).into_iter().filter_map(|s| parse_complex(s.trim())).collect()
 }
 
 /// Map a pseudo `name` + optional `arg` to a `Pseudo`. Unrecognized → `Unknown`
@@ -347,7 +381,9 @@ fn parse_pseudo(name: &str, arg: Option<&str>) -> Pseudo {
             let (a, b) = parse_nth(arg.unwrap_or(""));
             Pseudo::NthLastOfType(a, b)
         }
-        "not" => Pseudo::Not(Box::new(parse_compound_str(arg.unwrap_or("")))),
+        "is" => Pseudo::Is(parse_selector_list_str(arg.unwrap_or(""))),
+        "where" => Pseudo::Where(parse_selector_list_str(arg.unwrap_or(""))),
+        "not" => Pseudo::Not(parse_selector_list_str(arg.unwrap_or(""))),
         _ => Pseudo::Unknown,
     }
 }
@@ -658,7 +694,12 @@ impl Tree {
             Pseudo::ReadWrite => !self.has_attribute(h, "readonly"),
             // TODO: live prop — JS reads el.selected.
             Pseudo::Selected => self.has_attribute(h, "selected"),
-            Pseudo::Not(inner) => !self.matches_compound(h, inner),
+            // selector-list pseudos: each Complex is anchored at `h` (matches_complex
+            // tests the rightmost compound against `h` and walks left).
+            Pseudo::Is(list) | Pseudo::Where(list) => {
+                list.iter().any(|cx| self.matches_complex(h, cx))
+            }
+            Pseudo::Not(list) => !list.iter().any(|cx| self.matches_complex(h, cx)),
             Pseudo::Unknown => false,
         }
     }
@@ -735,8 +776,8 @@ impl Tree {
     pub fn matches(&self, h: Handle, selector: &str) -> bool {
         // empty/combinator-only segments are dropped at parse time (filter_map),
         // so every `cx` reaching the matcher is a non-empty `Complex`.
-        selector
-            .split(',')
+        split_top_level_commas(selector)
+            .into_iter()
             .filter_map(|s| parse_complex(s.trim()))
             .any(|cx| self.matches_complex(h, &cx))
     }
@@ -755,8 +796,8 @@ impl Tree {
                 return hit.clone();
             }
         }
-        let selectors: Vec<Complex> = selector
-            .split(',')
+        let selectors: Vec<Complex> = split_top_level_commas(selector)
+            .into_iter()
             .filter_map(|s| parse_complex(s.trim()))
             .collect();
         let mut out = Vec::new();
@@ -1354,5 +1395,61 @@ mod tests {
         assert_eq!(tree.query_selector_all(".a + .c").len(), 0);
         // but `.a ~ .c` does (general sibling, any distance)
         assert_eq!(tree.query_selector_all(".a ~ .c").len(), 1);
+    }
+
+    #[test]
+    fn pseudo_is_selector_list() {
+        let tree = Tree::parse(
+            "<div class=a>1</div><div class=b>2</div><div class=c>3</div>",
+        );
+        // :is(.a, .b) → the .a and .b divs (2), not .c
+        assert_eq!(tree.query_selector_all(":is(.a, .b)").len(), 2);
+        // single-item list is the degenerate case
+        assert_eq!(tree.query_selector_all(":is(.c)").len(), 1);
+        // :is matching nothing
+        assert_eq!(tree.query_selector_all(":is(.nope)").len(), 0);
+    }
+
+    #[test]
+    fn pseudo_is_with_combinator_and_descendant_arg() {
+        // div:is(.x) anchors the :is list at the element; combine with a descendant.
+        let tree = Tree::parse(
+            "<div class=x><span class=y>hit</span></div>             <div class=z><span class=y>miss</span></div>",
+        );
+        // div:is(.x) .y → only the .y inside the div.x
+        let r = tree.query_selector_all("div:is(.x) .y");
+        assert_eq!(r.len(), 1);
+        assert_eq!(tree.text_content(r[0]), "hit");
+        // :is() argument may itself be a complex selector (descendant)
+        let t2 = Tree::parse(
+            "<section><p class=t>a</p></section><p class=t>b</p>",
+        );
+        // :is(section .t, .nope) → only the .t inside the section
+        let r2 = t2.query_selector_all(":is(section .t, .nope)");
+        assert_eq!(r2.len(), 1);
+        assert_eq!(t2.text_content(r2[0]), "a");
+    }
+
+    #[test]
+    fn pseudo_where_matches_like_is() {
+        let tree = Tree::parse("<i class=a>1</i><i class=b>2</i><i>3</i>");
+        // :where(.a,.b) matches identically to :is (specificity aside)
+        assert_eq!(tree.query_selector_all(":where(.a,.b)").len(), 2);
+        assert_eq!(tree.query_selector_all("i:where(.a)").len(), 1);
+    }
+
+    #[test]
+    fn pseudo_not_selector_list() {
+        let tree = Tree::parse(
+            "<ul><li class=a>1</li><li class=b>2</li><li class=c>3</li></ul>",
+        );
+        // :not(.a, .b) → only the .c li survives
+        let r = tree.query_selector_all("li:not(.a, .b)");
+        assert_eq!(r.len(), 1);
+        assert_eq!(tree.text_content(r[0]), "3");
+        // :not(div, span) on a tag list — none of these <li> are div or span → all 3
+        assert_eq!(tree.query_selector_all("li:not(div, span)").len(), 3);
+        // :not(li, .c) → li that is neither (none) → 0
+        assert_eq!(tree.query_selector_all("li:not(li, .c)").len(), 0);
     }
 }

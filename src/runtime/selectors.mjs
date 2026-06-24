@@ -1,8 +1,8 @@
 // Compact CSS selector engine. Correctness-first, right-to-left matching.
 // Supports: type, *, #id, .class, [attr], [attr op val] (= ^= $= *= ~= |=),
 // combinators (descendant ' ', child '>', adjacent '+', sibling '~'),
-// comma selector lists, and :not(), :first-child, :last-child, :only-child,
-// :empty, :root. Enough for React Testing Library usage.
+// comma selector lists, and :not()/:is()/:where() (selector lists), :first-child,
+// :last-child, :only-child, :empty, :root. Enough for React Testing Library usage.
 
 // ── Tokenizer + recursive-descent parser ─────────────────────────────────────
 // The selector string is first turned into a flat token stream by `tokenize`,
@@ -253,6 +253,12 @@ function matchPseudo(el, p) {
   switch (p.name) {
     case 'not':
       return !parseSelectorList(p.arg).some((cx) => matchComplex(el, cx));
+    // :is()/:where() — element matches if ANY complex in the list matches it
+    // (anchored at the element). :where matches identically to :is; the
+    // specificity difference is a cascade concern, out of scope here.
+    case 'is':
+    case 'where':
+      return parseSelectorList(p.arg).some((cx) => matchComplex(el, cx));
     case 'first-child':
       return previousElement(el) === null;
     case 'last-child':
