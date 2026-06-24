@@ -724,7 +724,9 @@ impl Tree {
     fn detach(&mut self, child: Handle) {
         if let Some(p) = self.parent(child) {
             let list = self.ensure_children(p);
-            list.retain(|&x| x != child);
+            if let Some(pos) = list.iter().position(|&x| x == child) {
+                list.remove(pos);
+            }
         }
     }
 
@@ -749,7 +751,10 @@ impl Tree {
     }
 
     pub fn remove_child(&mut self, parent: Handle, child: Handle) {
-        self.ensure_children(parent).retain(|&x| x != child);
+        let list = self.ensure_children(parent);
+        if let Some(pos) = list.iter().position(|&x| x == child) {
+            list.remove(pos);
+        }
         self.parent_ov.insert(child, None);
         self.bump();
         self.record_child_list(parent, None, Some(child));
