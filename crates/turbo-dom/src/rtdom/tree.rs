@@ -520,12 +520,54 @@ impl Tree {
         self.version += 1;
     }
 
-    /// Push a mutation record IF recording is on (an observer is attached). The
-    /// no-observer path skips this entirely — zero alloc.
-    fn record(&mut self, rec: crate::rtdom::mutations::MutationRecord) {
-        if let Some(log) = self.mutation_log.as_mut() {
-            log.push(rec);
+    /// Record a `childList` mutation IF recording is on (an observer is attached).
+    /// Takes PRIMITIVES and early-returns BEFORE allocating the added/removed `Vec`s
+    /// or the record — mirroring JS `notifyMutation` (dom.mjs:1501), which builds the
+    /// `[added]`/`[removed]` arrays only after the no-observer early-return. The
+    /// version bump is the CALLER's job and is always done unconditionally, so the
+    /// no-observer path stays zero-alloc while caches still invalidate.
+    fn record_child_list(&mut self, parent: Handle, added: Option<Handle>, removed: Option<Handle>) {
+        if !self.is_recording() {
+            return;
         }
+        let rec = crate::rtdom::mutations::MutationRecord::child_list(
+            parent,
+            added.into_iter().collect(),
+            removed.into_iter().collect(),
+        );
+        self.mutation_log.as_mut().unwrap().push(rec);
+    }
+
+    /// Like `record_child_list` but for the batch case (`textContent` replacing a
+    /// whole child list): only takes ownership of the already-built `Vec`s — which
+    /// the caller produced for the actual mutation anyway — when recording.
+    fn record_child_list_batch(&mut self, parent: Handle, added: Vec<Handle>, removed: Vec<Handle>) {
+        if !self.is_recording() {
+            return;
+        }
+        let rec = crate::rtdom::mutations::MutationRecord::child_list(parent, added, removed);
+        self.mutation_log.as_mut().unwrap().push(rec);
+    }
+
+    /// Record an `attributes` mutation IF recording is on. Takes the name as `&str`
+    /// and only allocates the owned `String` (via `MutationRecord::attributes`) after
+    /// the early-return — so a no-observer `set_attribute`/`remove_attribute` never
+    /// builds the record's name string.
+    fn record_attributes(&mut self, target: Handle, name: &str, old_value: Option<String>) {
+        if !self.is_recording() {
+            return;
+        }
+        let rec = crate::rtdom::mutations::MutationRecord::attributes(target, name, old_value);
+        self.mutation_log.as_mut().unwrap().push(rec);
+    }
+
+    /// Record a `characterData` mutation IF recording is on.
+    fn record_character_data(&mut self, target: Handle, old_value: Option<String>) {
+        if !self.is_recording() {
+            return;
+        }
+        let rec = crate::rtdom::mutations::MutationRecord::character_data(target, old_value);
+        self.mutation_log.as_mut().unwrap().push(rec);
     }
 
     /// Begin buffering mutation records (called by `MutationObserver::observe`).
@@ -567,7 +609,7 @@ impl Tree {
             ov.push((name.into(), value.into()));
         }
         self.bump();
-        self.record(crate::rtdom::mutations::MutationRecord::attributes(h, name, old));
+        self.record_attributes(h, name, old);
     }
 
     pub fn remove_attribute(&mut self, h: Handle, name: &str) {
@@ -579,7 +621,7 @@ impl Tree {
         let ov = self.ensure_attrs(h);
         ov.retain(|(n, _)| n != name);
         self.bump();
-        self.record(crate::rtdom::mutations::MutationRecord::attributes(h, name, old));
+        self.record_attributes(h, name, old);
     }
 
     /// Ensure a node's child overlay exists (copy buffer children in on first mutate).
@@ -603,7 +645,7 @@ impl Tree {
         self.ensure_children(parent).push(child);
         self.parent_ov.insert(child, Some(parent));
         self.bump();
-        self.record(crate::rtdom::mutations::MutationRecord::child_list(parent, vec![child], vec![]));
+        self.record_child_list(parent, Some(child), None);
     }
 
     pub fn insert_before(&mut self, parent: Handle, child: Handle, reference: Option<Handle>) {
@@ -615,14 +657,14 @@ impl Tree {
         }
         self.parent_ov.insert(child, Some(parent));
         self.bump();
-        self.record(crate::rtdom::mutations::MutationRecord::child_list(parent, vec![child], vec![]));
+        self.record_child_list(parent, Some(child), None);
     }
 
     pub fn remove_child(&mut self, parent: Handle, child: Handle) {
         self.ensure_children(parent).retain(|&x| x != child);
         self.parent_ov.insert(child, None);
         self.bump();
-        self.record(crate::rtdom::mutations::MutationRecord::child_list(parent, vec![], vec![child]));
+        self.record_child_list(parent, None, Some(child));
     }
 
     pub fn set_text_content(&mut self, h: Handle, text: &str) {
@@ -631,12 +673,11 @@ impl Tree {
             let old = if self.is_recording() { self.node_value(h) } else { None };
             self.text_ov.insert(h, text.into());
             self.bump();
-            self.record(crate::rtdom::mutations::MutationRecord::character_data(h, old));
+            self.record_character_data(h, old);
         } else {
             // replace children with a single text node — but per the DOM spec, the EMPTY string
             // produces NO child node (the element ends up empty). React's createRoot clears the
             // container via `textContent = ''` and relies on it leaving zero children.
-            let removed = self.children(h);
             let added = if text.is_empty() {
                 Vec::new()
             } else {
@@ -644,9 +685,18 @@ impl Tree {
                 self.parent_ov.insert(t, Some(h));
                 vec![t]
             };
-            self.children_ov.insert(h, added.clone());
-            self.bump();
-            self.record(crate::rtdom::mutations::MutationRecord::child_list(h, added, removed));
+            // `removed` (the prior child list) is needed ONLY for a mutation record;
+            // the overlay overwrite below ignores it. So snapshot it solely when
+            // recording, and avoid cloning `added` on the no-observer path.
+            if self.is_recording() {
+                let removed = self.children(h);
+                self.children_ov.insert(h, added.clone());
+                self.bump();
+                self.record_child_list_batch(h, added, removed);
+            } else {
+                self.children_ov.insert(h, added);
+                self.bump();
+            }
         }
     }
 
@@ -663,7 +713,7 @@ impl Tree {
         let old = if self.is_recording() { self.node_value(h) } else { None };
         self.text_ov.insert(h, text.into());
         self.bump();
-        self.record(crate::rtdom::mutations::MutationRecord::character_data(h, old));
+        self.record_character_data(h, old);
     }
     pub fn insert_data(&mut self, h: Handle, offset: usize, data: &str) {
         let chars: Vec<char> = self.node_value(h).unwrap_or_default().chars().collect();
