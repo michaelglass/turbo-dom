@@ -1,0 +1,7 @@
+# Dev toolchain for turbo-dom — pins Rust + Node so the build, tests, and coverage
+# all work out of the box. The repo was previously on rustc 1.86, which broke
+# napi-build (needs >= 1.88) and cargo-llvm-cov (needs >= 1.87); 1.96 clears both.
+# Node 24 is the documented runtime (see CLAUDE.md "Node >= 24").
+[tools]
+rust = "1.96.0"
+node = "24"
