@@ -19,12 +19,11 @@ html5ever = "0.39"
 markup5ever_rcdom = "0.39"
 # Fast non-crypto hashing for SoA string interning (parse hot path).
 rustc-hash = "2"
-# Small-string-optimized String (24-byte inline, no heap alloc for short strings).
+# Immutable small-string-optimized string (inline for short strings, no heap).
 # Backs the mutation-owned overlay fields (created element/text/comment data, attr
-# name/value pairs, text overrides) — element names, class tokens, short attr values
-# all fit inline, so mutation churn no longer heap-allocs per node. Drop-in for
-# String (Deref<Target=str>). The parse-buffer SoA stays plain String (interned).
-compact_str = "0.9"
+# name/value pairs, text overrides), which are only ever assigned/replaced, never
+# mutated in place. Lighter than compact_str (no numeric-formatting deps).
+smol_str = "0.3"
 # Small-vector optimization for the per-node overlay child/attr lists. Inlines
 # small lists (≤8 child handles / ≤2 attr pairs) so mutation churn doesn't heap-
 # alloc a Vec per mutated node; the rare wide node spills to the heap. API-compatible

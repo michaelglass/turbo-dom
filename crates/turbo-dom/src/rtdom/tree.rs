@@ -9,7 +9,7 @@
 //! Reads come straight off the buffer (zero alloc) unless an overlay exists.
 
 use crate::core::{self, Soa};
-use compact_str::CompactString;
+use smol_str::SmolStr;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::cell::RefCell;
@@ -93,9 +93,9 @@ impl Handle {
 /// element always has one — so the old `(node_type, name, ns)` triple's invalid
 /// combinations (a `Text` with an `ns`, an element with no name) are unrepresentable.
 enum NewNode {
-    Element { name: CompactString, ns: Namespace },
-    Text(CompactString),
-    Comment(CompactString),
+    Element { name: SmolStr, ns: Namespace },
+    Text(SmolStr),
+    Comment(SmolStr),
     Fragment,
 }
 
@@ -136,7 +136,7 @@ impl NewNode {
 type ChildList = SmallVec<[Handle; 8]>;
 /// Per-node overlay attribute list. Inlines up to 2 `(name, value)` pairs
 /// (covers the common id/class case) before spilling to the heap.
-type AttrList = SmallVec<[(CompactString, CompactString); 2]>;
+type AttrList = SmallVec<[(SmolStr, SmolStr); 2]>;
 
 /// A COW mutation overlay keyed by [`Handle`], split by the structural fact that
 /// created-node handles are **dense**: `push_node` assigns them `buf_len + i`
@@ -236,7 +236,7 @@ pub struct Tree {
     parent_ov: Overlay<Option<Handle>>,
     children_ov: Overlay<ChildList>,
     attrs_ov: Overlay<AttrList>,
-    text_ov: Overlay<CompactString>,
+    text_ov: Overlay<SmolStr>,
     /// host → shadow-root handle, and shadow-root → host (the two shadow maps).
     shadow_root_of_host: FxHashMap<Handle, Handle>,
     host_of_shadow_root: FxHashMap<Handle, Handle>,
