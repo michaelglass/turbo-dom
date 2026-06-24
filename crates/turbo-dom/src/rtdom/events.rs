@@ -122,7 +122,7 @@ impl Dom {
         path.iter().any(|h| {
             self.listeners
                 .get(h)
-                .map_or(false, |v| v.iter().any(|l| l.event_type == event_type))
+                .is_some_and(|v| v.iter().any(|l| l.event_type == event_type))
         })
     }
 
@@ -184,7 +184,7 @@ impl Dom {
                             if i < list.len() {
                                 list[i].cb = cb;
                             }
-                            if list.get(i).map_or(false, |l| l.once) {
+                            if list.get(i).is_some_and(|l| l.once) {
                                 list.remove(i);
                                 if event.immediate_stopped {
                                     break;
@@ -269,7 +269,7 @@ mod tests {
         dom.add_event_listener(div, "click", false, false, Box::new(move |_, _| *h.borrow_mut() = true));
         let mut ev = Event::new("click", true, true);
         dom.dispatch_event(button, &mut ev);
-        assert_eq!(*hit.borrow(), false);
+        assert!(!*hit.borrow());
     }
 
     #[test]
@@ -279,7 +279,7 @@ mod tests {
         dom.add_event_listener(a, "click", false, false, Box::new(|_, e| e.prevent_default()));
         let mut ev = Event::new("click", true, true);
         let ok = dom.dispatch_event(a, &mut ev);
-        assert_eq!(ok, false);
+        assert!(!ok);
         assert!(ev.default_prevented());
     }
 
@@ -374,7 +374,7 @@ mod tests {
         dom.remove_event_listener(Handle(99999), id);
         let mut ev = Event::new("click", true, true);
         dom.dispatch_event(b, &mut ev);
-        assert_eq!(*hit.borrow(), false);
+        assert!(!*hit.borrow());
     }
 
     // A non-bubbling event only fires capture + target, never bubble
@@ -437,7 +437,7 @@ mod tests {
         let mut ev = Event::new("click", true, true);
         dom.dispatch_event(button, &mut ev);
         assert_eq!(*seen.borrow(), vec![(div, Phase::Capturing)]);
-        assert_eq!(*target_hit.borrow(), false);
+        assert!(!*target_hit.borrow());
         // after dispatch, phase resets to None and current_target cleared.
         assert_eq!(ev.phase, Phase::None);
         assert_eq!(ev.current_target, Handle(0));

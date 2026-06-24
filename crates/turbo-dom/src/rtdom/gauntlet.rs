@@ -3,7 +3,6 @@
 //! cascade → event dispatch whose handler MUTATES the tree → cache-invalidated
 //! re-query → serialize. This is the Rust-consumer analogue of the RTL gauntlet;
 //! it proves the native API composes correctly across modules.
-#![cfg(test)]
 
 use super::cascade;
 use super::events::{Dom, Event};
@@ -66,7 +65,7 @@ fn full_stack_parse_query_cascade_event_mutate_serialize() {
 
     // --- serialize ---
     let inner = serialize::serialize_inner(&dom.tree, main);
-    assert_eq!(inner.matches("class=\"card\"").count() + inner.matches("class='card'").count() >= 1, true);
+    assert!(inner.matches("class=\"card\"").count() + inner.matches("class='card'").count() >= 1);
     let outer = serialize::serialize_outer(&dom.tree, cards[2]);
     assert!(outer.starts_with("<div"));
     assert!(outer.contains("data-testid=\"c2\""));

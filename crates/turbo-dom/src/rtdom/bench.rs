@@ -1,7 +1,6 @@
 //! rtdom hotspot harness. Times each core operation on a realistic fixture so we
 //! can see what dominates a render+query+assert workload and where to optimize.
 //! Run: `cargo test --release --lib rtdom::bench::hotspot_report -- --ignored --nocapture`.
-#![cfg(test)]
 
 use super::cascade;
 use super::events::{Dom, Event};

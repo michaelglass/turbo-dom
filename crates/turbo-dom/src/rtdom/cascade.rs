@@ -135,7 +135,7 @@ fn looks_like_width_token(p: &str) -> bool {
 fn set_prop(map: &mut HashMap<String, String>, name: &str, val: &str) {
     map.insert(name.to_string(), val.to_string());
     if name == "margin" || name == "padding" {
-        let t: Vec<&str> = val.trim().split_whitespace().collect();
+        let t: Vec<&str> = val.split_whitespace().collect();
         let top = t.first().copied().unwrap_or("");
         let right = t.get(1).copied().unwrap_or(top);
         let bottom = t.get(2).copied().unwrap_or(top);
@@ -148,7 +148,7 @@ fn set_prop(map: &mut HashMap<String, String>, name: &str, val: &str) {
         let mut width: Option<&str> = None;
         let mut style: Option<&str> = None;
         let mut color_v: Option<&str> = None;
-        for p in val.trim().split_whitespace() {
+        for p in val.split_whitespace() {
             if BORDER_STYLES.contains(&p) {
                 style = Some(p);
             } else if looks_like_width_token(p) {

@@ -14,6 +14,7 @@
 //!   * `makeCustomElements` — registry returning JS constructors + Promises.
 //!   * `MutationObserver` — queue keyed to live DOM mutations.
 //!   * `makeLocation` / `makeHistory` — `URL`-backed navigation models.
+//!
 //! The observer *callbacks* are async/JS in the source; here only the single
 //! initial entry value is modeled (the "fire once with one entry" contract).
 
@@ -105,10 +106,10 @@ pub fn eval_media_query(query: &str, vp: &Viewport) -> bool {
     for (feat, val) in scan_features(&q) {
         any = true;
         match feat.as_str() {
-            "min-width" => matched = matched && parse_px(&val).map_or(false, |n| w >= n),
-            "max-width" => matched = matched && parse_px(&val).map_or(false, |n| w <= n),
-            "min-height" => matched = matched && parse_px(&val).map_or(false, |n| h >= n),
-            "max-height" => matched = matched && parse_px(&val).map_or(false, |n| h <= n),
+            "min-width" => matched = matched && parse_px(&val).is_some_and(|n| w >= n),
+            "max-width" => matched = matched && parse_px(&val).is_some_and(|n| w <= n),
+            "min-height" => matched = matched && parse_px(&val).is_some_and(|n| h >= n),
+            "max-height" => matched = matched && parse_px(&val).is_some_and(|n| h <= n),
             "orientation" => {
                 let want = if w >= h { "landscape" } else { "portrait" };
                 matched = matched && val == want;

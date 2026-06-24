@@ -683,22 +683,22 @@ impl Tree {
                     == 1
             }
             // `position` is always Some (h is among its own element siblings); the
-            // map_or default is unreachable but keeps each arm a single covered line.
+            // is_some_and false branch is unreachable but keeps each arm a single covered line.
             Pseudo::NthChild(a, b) => {
                 let sibs = self.element_siblings(h);
-                sibs.iter().position(|&c| c == h).map_or(false, |idx| nth_match(*a, *b, idx as i64 + 1))
+                sibs.iter().position(|&c| c == h).is_some_and(|idx| nth_match(*a, *b, idx as i64 + 1))
             }
             Pseudo::NthLastChild(a, b) => {
                 let sibs = self.element_siblings(h);
                 sibs.iter()
                     .position(|&c| c == h)
-                    .map_or(false, |idx| nth_match(*a, *b, sibs.len() as i64 - idx as i64))
+                    .is_some_and(|idx| nth_match(*a, *b, sibs.len() as i64 - idx as i64))
             }
             Pseudo::NthOfType(a, b) => {
                 let ln = self.local_name(h);
                 let same: Vec<Handle> =
                     self.element_siblings(h).into_iter().filter(|&c| self.local_name(c) == ln).collect();
-                same.iter().position(|&c| c == h).map_or(false, |idx| nth_match(*a, *b, idx as i64 + 1))
+                same.iter().position(|&c| c == h).is_some_and(|idx| nth_match(*a, *b, idx as i64 + 1))
             }
             Pseudo::NthLastOfType(a, b) => {
                 let ln = self.local_name(h);
@@ -706,7 +706,7 @@ impl Tree {
                     self.element_siblings(h).into_iter().filter(|&c| self.local_name(c) == ln).collect();
                 same.iter()
                     .position(|&c| c == h)
-                    .map_or(false, |idx| nth_match(*a, *b, same.len() as i64 - idx as i64))
+                    .is_some_and(|idx| nth_match(*a, *b, same.len() as i64 - idx as i64))
             }
             // :empty — no child nodes at all (any node type counts in the JS, which
             // checks childNodes.length). We have only element children via children();
@@ -1032,7 +1032,7 @@ impl Tree {
         }
         for h in order {
             if self.node_type(h) == NodeType::Element
-                && (any || self.local_name(h).map_or(false, |ln| ln.eq_ignore_ascii_case(tag)))
+                && (any || self.local_name(h).is_some_and(|ln| ln.eq_ignore_ascii_case(tag)))
             {
                 out.push(h);
             }
@@ -1059,7 +1059,7 @@ mod tests {
     #[test]
     fn qsa_id_and_attr() {
         let tree = Tree::parse("<a id=home href='/x' data-k=v>hi</a><a href='/y'>z</a>");
-        assert_eq!(tree.query_selector("#home").is_some(), true);
+        assert!(tree.query_selector("#home").is_some());
         assert_eq!(tree.query_selector_all("a[href]").len(), 2);
         assert_eq!(tree.query_selector_all("a[data-k=v]").len(), 1);
         assert_eq!(tree.query_selector_all("[data-k='v']").len(), 1);
@@ -1133,7 +1133,7 @@ mod tests {
         assert!(tree.matches(p, "div#root p.lead"));
         assert!(tree.matches(p, ".lead"));
         assert!(!tree.matches(p, "span"));
-        assert_eq!(tree.get_element_by_id("root").is_some(), true);
+        assert!(tree.get_element_by_id("root").is_some());
     }
 
     #[test]

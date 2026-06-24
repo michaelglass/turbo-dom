@@ -176,16 +176,16 @@ mod tests {
         let mut rad = ctx.create_radial_gradient(0.0, 0.0, 1.0, 0.0, 0.0, 5.0);
         rad.add_color_stop(0.5, "red");
 
-        let mut standalone = CanvasGradient::default();
+        let mut standalone = CanvasGradient;
         standalone.add_color_stop(0.0, "blue");
 
         let _pat = ctx.create_pattern();
-        let _pat2 = CanvasPattern::default();
+        let _pat2 = CanvasPattern;
     }
 
     #[test]
     fn noop_draw_calls() {
-        let ctx = Canvas2dContext::default();
+        let ctx = Canvas2dContext;
         ctx.fill_rect(0.0, 0.0, 1.0, 1.0);
         ctx.clear_rect(0.0, 0.0, 1.0, 1.0);
         ctx.stroke_rect(0.0, 0.0, 1.0, 1.0);

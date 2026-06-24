@@ -1360,7 +1360,7 @@ mod tests {
         let sr = tree.attach_shadow(host);
         tree.set_inner_html(sr, "<style>:host{color:red}</style><slot name=title></slot><slot></slot>");
         // encapsulation: shadow content is NOT in the light tree
-        assert!(tree.shadow_root_of_host.get(&host).is_some());
+        assert!(tree.shadow_root_of_host.contains_key(&host));
         assert_eq!(tree.query_selector_all("slot").len(), 0); // light query skips shadow
         // shadow_root_of resolves for shadow-internal nodes
         let slots = tree.descendants(sr).into_iter().filter(|&h| tree.local_name(h) == Some("slot")).collect::<Vec<_>>();

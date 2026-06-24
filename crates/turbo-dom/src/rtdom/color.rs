@@ -204,13 +204,7 @@ fn named_color_hex(name: &str) -> Option<&'static str> {
 /// JS `clamp255 = (n) => (n < 0 ? 0 : n > 255 ? 255 : n) | 0`.
 /// The `| 0` is a truncation-toward-zero to i32 of an already-clamped value.
 fn clamp255(n: f64) -> i64 {
-    let c = if n < 0.0 {
-        0.0
-    } else if n > 255.0 {
-        255.0
-    } else {
-        n
-    };
+    let c = n.clamp(0.0, 255.0);
     // ToInt32 / `| 0` truncates toward zero.
     c.trunc() as i64
 }

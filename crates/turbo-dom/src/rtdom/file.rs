@@ -102,7 +102,7 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 /// Hand-rolled standard base64 encode with `=` padding — no external crate.
 /// Mirrors the pure-JS fallback in `turboBtoa` (window.mjs).
 fn base64_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     let mut i = 0;
     let len = bytes.len();
     while i < len {

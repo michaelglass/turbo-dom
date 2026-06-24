@@ -8,6 +8,7 @@
 //!   * `length_value` = SVGAnimatedLength `.baseVal.value` (a number),
 //!   * `class_name`   = SVGAnimatedString `.baseVal`,
 //!   * `view_box`     = SVGAnimatedRect `.baseVal` as (x, y, width, height).
+//!
 //! Only meaningful on svg-namespace elements; HTML elements are unaffected.
 
 use super::tree::{Handle, Namespace, Tree};
@@ -136,7 +137,7 @@ mod tests {
     use super::*;
     use crate::rtdom::tree::Tree;
 
-    fn find_local<'a>(tree: &'a Tree, name: &str) -> Handle {
+    fn find_local(tree: &Tree, name: &str) -> Handle {
         for h in tree.handles() {
             if tree.local_name(h) == Some(name) {
                 return h;
