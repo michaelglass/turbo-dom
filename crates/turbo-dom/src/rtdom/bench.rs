@@ -170,7 +170,7 @@ fn fixture(cards: usize) -> String {
 
 /// Multi-dimension numbers for the cross-DOM comparison (bench/compare-all.mjs reads
 /// the `RTDOM_JSON` line). Run:
-///   cargo test --release --lib --features rust-runtime `rtdom::bench::compare_all` -- --ignored --nocapture
+///   cargo test --release --lib `rtdom::bench::compare_all` -- --ignored --nocapture
 #[test]
 #[ignore = "perf bench — run explicitly with --ignored"]
 fn compare_all() {

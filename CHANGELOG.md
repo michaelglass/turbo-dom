@@ -14,21 +14,28 @@ at the time); this file reconstructs them from history.
   `"a b"` and whitespace-normalized matching (getByRole/getByText/toHaveText on a
   serialized DOM) failed. Spaces now serialize verbatim; only `&`/`<`/`>`/`"` are escaped.
 
-## [Unreleased] — Rust-native DOM runtime (`rtdom`)
+## [Unreleased] — Rust-native DOM runtime (`turbo-dom` crate)
 
 Not an npm-package change: the published `@miaskiewicz/turbo-dom` (JS runtime + parser) is
 unaffected — `src/runtime/*.mjs` is byte-identical and the napi/wasm parser API is unchanged.
 
-- **`src/rtdom/`** — a pure-Rust port of the DOM runtime for in-process **Rust** consumers
+- **`crates/turbo-dom`** — a pure-Rust port of the DOM runtime for in-process **Rust** consumers
   (crawlers/extractors/SSR): lazy COW tree over the SoA, version-cached queries, partial
   `getComputedStyle`, events, shadow DOM, serialize, plus color/cssom/svg/file/canvas/
   custom_elements/location/mutations/node_ref. ~2.7× the JS runtime on chatty access (zero
-  boundary); 100% line coverage, 192 tests, a direct html5lib-tests gate at 99.75%.
-- **Build:** gated behind an off-by-default `rust-runtime` cargo feature so the npm `.node`/wasm
-  artifacts stay lean. New scripts: `build:rtdom`, `conformance:rtdom`; `test:rust` now runs
-  `--features rust-runtime`.
-- **Standalone crate** `turbo-dom-rtdom` — self-contained extract (html5ever + rustc-hash only,
-  no napi/wasm), vendorable, with a runnable `examples/crawl.rs`.
+  boundary); 100% line coverage, 227 tests, a direct html5lib-tests gate at 99.75%. Published to
+  crates.io as `turbo-dom` — self-contained (html5ever + rustc-hash only, no napi/wasm),
+  vendorable, with a runnable `examples/crawl.rs`.
+- **One source of truth.** The engine lives only in the crate: there is no in-repo `src/rtdom`
+  copy and no `rust-runtime` cargo feature (an earlier off-by-default feature gated a duplicate
+  copy; it was consolidated away — the npm `.node`/wasm artifacts stay lean regardless, as the
+  crate is never compiled into them). Build/test from the repo: `npm run build:rtdom`
+  (= `cargo build -p turbo-dom --release`), `npm run test:rust` (= `cargo test -p turbo-dom`),
+  `npm run conformance:rtdom`.
+- **Build/CI hardening.** The shipped napi addon is symbol-stripped (~−169 KB). Both crates adopt
+  `clippy::pedantic` (warn-gated, CI-enforced at `-D warnings`), and a deterministic mutation-churn
+  allocation gate (`churn_alloc_gate`) runs in CI, locking the create/append/remove path at ≈363
+  allocs/op. `mise.toml` pins the Rust + Node toolchain and provisions prebuilt `wasm-pack`/`wasm-tools`.
 - Architecture + the per-commit JS-perf-win → Rust mapping: `RUST_PORT_PLAN.md`,
   `RUST_PORT_PERF_HISTORY.md`. (A Phase-1 spike confirmed the spec's thesis: a Rust DOM exposed
   to JS via WASM is ~0.55× the JS runtime — the boundary loses — so rtdom is Rust-only.)

@@ -16,12 +16,16 @@ to be the cost (a later bench). Don't SoA-ify `core.rs`.
 npm run build         # native addon → turbo-dom-parser.<platform>.node + index.js/.d.ts (napi codegen)
 npm run build:wasm    # wasm32 fallback
 npm test              # JS: node --test  (MUST glob: 'test/*.mjs' — `node --test test/` is misparsed on Node 24)
-npm run test:cov      # same suite + coverage gate (runtime lines≥99 / funcs≥92 / branches≥88)
-npm run test:rust     # cargo test -p turbo-dom  (rtdom crate: 220 tests + conformance)
+npm run test:cov      # same suite + coverage gate (runtime lines≥99 / funcs≥95 / branches≥95)
+npm run test:rust     # cargo test -p turbo-dom  (rtdom crate: 227 tests + conformance)
 npm run conformance   # html5lib-tests gate (parser, JS serializer)
 # --- Rust-native DOM runtime (rtdom) ---
 npm run build:rtdom        # cargo build -p turbo-dom --release
 npm run conformance:rtdom  # html5lib-tests gate run THROUGH the rtdom tree (direct, 99.75%)
+npm run profile:churn      # build the CPU-profiling example + print the macOS `sample` hint
+# --- lint + perf gates (CI-enforced) ---
+cargo clippy --workspace --all-targets -- -D warnings   # both crates: clippy::pedantic-clean
+cargo test -p turbo-dom churn_alloc_gate -- --ignored    # perf gate: churn allocs/op ≤ 380 (≈363)
 ```
 
 **Two independent runtimes, one repo.** The JS runtime (`src/runtime/*.mjs`, the npm/vitest path)
@@ -40,6 +44,17 @@ Toolchain: Node ≥ 24, Rust stable via rustup (`source $HOME/.cargo/env` if car
 staged, so every commit gates tests + coverage + conformance (conformance.test.mjs runs in the
 suite). Bypass with `git commit --no-verify`. Coverage-ignore a truly-unreachable defensive line
 with `/* node:coverage ignore next */` (sparingly) — prefer restructuring or a test.
+
+**Lint + perf gates (CI-enforced, not pre-commit).** Both crates enable `clippy::pedantic` via
+`[lints.clippy]` in their `Cargo.toml`, with a documented allow-list for the lints that don't fit a
+DOM/parse/layout engine (the f64↔int cast family, `float_cmp` on canonical values, single-char
+tokenizer vars, missing-panics/errors-doc, …). CI runs `cargo clippy --workspace --all-targets --
+-D warnings` plus the root crate's `wasm-bind`/`wasm-runtime` variants, so any pedantic warning
+fails. A deterministic perf gate, `rtdom::bench::churn_alloc_gate`, asserts the mutation-churn path
+stays ≤ 380 allocs/op (measured 363 — the count is load- and opt-level-independent, so it's stable
+on CI where wall-clock would flake). It's `#[ignore]`'d and run ALONE in its own CI step
+(`cargo test -p turbo-dom churn_alloc_gate -- --ignored`) because `CountingAlloc` is a process-
+global allocator that a parallel test would pollute. Don't loosen either threshold to pass a change.
 
 ## Releasing (`vX.Y.Z`)
 
