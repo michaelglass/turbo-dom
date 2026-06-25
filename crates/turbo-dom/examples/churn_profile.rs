@@ -6,7 +6,7 @@
 //! `samply`, Instruments) collects thousands of stacks at steady state.
 //!
 //! WHAT'S IN THE LOOP: the closure calls `Tree::parse("<main id=root></main>")`
-//! once per iteration — a tiny fresh document, NOT the depth=6/width=8 big_fixture
+//! once per iteration — a tiny fresh document, NOT the depth=6/width=8 `big_fixture`
 //! (that fixture is the *base* document the OTHER report rows query; the churn row
 //! builds its own fresh tiny tree). The per-iter parse is therefore a workload
 //! artifact (the dhat profile attributed ~61 allocs/op to it). We profile the
@@ -15,8 +15,8 @@
 //! so the mutation-only cost is still readable.
 //!
 //! Usage:
-//!   cargo build --release --example churn_profile -p turbo-dom
-//!   ./target/release/examples/churn_profile [iterations]
+//!   cargo build --release --example `churn_profile` -p turbo-dom
+//!   ./`target/release/examples/churn_profile` [iterations]
 //!   # in another shell: sample <pid> 20 -file /tmp/churn.sample.txt
 
 use std::hint::black_box;

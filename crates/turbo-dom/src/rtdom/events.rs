@@ -34,6 +34,7 @@ pub struct Event {
 }
 
 impl Event {
+    #[must_use]
     pub fn new(event_type: &str, bubbles: bool, cancelable: bool) -> Event {
         Event {
             event_type: event_type.to_string(),
@@ -59,6 +60,7 @@ impl Event {
         self.propagation_stopped = true;
         self.immediate_stopped = true;
     }
+    #[must_use]
     pub fn default_prevented(&self) -> bool {
         self.default_prevented
     }
@@ -85,6 +87,7 @@ impl Dom {
     pub fn new(tree: Tree) -> Dom {
         Dom { tree, listeners: HashMap::new(), next_id: 0 }
     }
+    #[must_use]
     pub fn parse(html: &str) -> Dom {
         Dom::new(Tree::parse(html))
     }

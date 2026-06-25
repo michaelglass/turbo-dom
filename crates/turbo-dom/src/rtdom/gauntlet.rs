@@ -7,6 +7,7 @@
 use super::cascade;
 use super::events::{Dom, Event};
 use super::serialize;
+use std::fmt::Write;
 
 const PAGE: &str = "<!doctype html><html><head><style>\
 .card{color:blue;padding:0}\
@@ -76,7 +77,7 @@ fn full_stack_parse_query_cascade_event_mutate_serialize() {
 /// Run: `cargo test --release --lib rtdom::gauntlet::native -- --ignored --nocapture`.
 /// Zero boundary here — contrast with the spike's WASM-from-JS 0.56× JS result.
 #[test]
-#[ignore]
+#[ignore = "end-to-end gauntlet — run explicitly with --ignored"]
 fn native_workload_throughput() {
     use super::tree::Tree;
     use std::time::Instant;
@@ -84,10 +85,11 @@ fn native_workload_throughput() {
     let n = 300;
     let mut html = String::from("<!doctype html><html><body><main class=grid>");
     for i in 0..n {
-        html.push_str(&format!(
+        let _ = write!(
+            html,
             "<div class=\"card sx-{}\" data-testid=\"card-{}\" id=\"c{}\"><h2 class=title>T{}</h2><p>body</p><button type=button>Go</button></div>",
             i % 7, i, i, i
-        ));
+        );
     }
     html.push_str("</main></body></html>");
 
@@ -139,16 +141,16 @@ fn native_workload_throughput() {
         "rtdom native workload: {:.0} ops/s over {} cards (sink {}) — zero boundary",
         best,
         n,
-        sink % 100003
+        sink % 100_003
     );
 }
 
 /// CONTROLLED in-process A/B (same language, runtime, harness, fixture) — isolates
 /// the ONE variable the design rests on: lazy COW reads (off the immutable buffer)
-/// vs eager full-inflate (every node materialized into the owned HashMap overlay).
+/// vs eager full-inflate (every node materialized into the owned `HashMap` overlay).
 /// Run: `cargo test --release --lib rtdom::gauntlet::lazy_vs_eager -- --ignored --nocapture`.
 #[test]
-#[ignore]
+#[ignore = "end-to-end gauntlet — run explicitly with --ignored"]
 fn lazy_vs_eager_ab() {
     use super::tree::Tree;
     use std::time::Instant;
@@ -156,10 +158,11 @@ fn lazy_vs_eager_ab() {
     let n = 300;
     let mut html = String::from("<!doctype html><html><body><main class=grid>");
     for i in 0..n {
-        html.push_str(&format!(
+        let _ = write!(
+            html,
             "<div class=\"card sx-{}\" data-testid=\"card-{}\" id=\"c{}\"><h2 class=title>T{}</h2><p>body</p><button type=button>Go</button></div>",
             i % 7, i, i, i
-        ));
+        );
     }
     html.push_str("</main></body></html>");
 
@@ -186,7 +189,7 @@ fn lazy_vs_eager_ab() {
             let ops = iters as f64 / start.elapsed().as_secs_f64();
             if ops > best { best = ops; }
         }
-        (best, sink % 100003)
+        (best, sink % 100_003)
     };
 
     let lazy = Tree::parse(&html);
@@ -198,9 +201,9 @@ fn lazy_vs_eager_ab() {
     let inflate_ms = inflate_start.elapsed().as_secs_f64() * 1000.0;
     let (eager_ops, s2) = run(&eager);
 
-    println!("lazy-vs-eager A/B (same runtime, {} cards):", n);
-    println!("  lazy  (buffer reads, zero overlay alloc): {:.0} ops/s (sink {})", lazy_ops, s1);
-    println!("  eager (full HashMap overlay inflate)     : {:.0} ops/s (sink {})", eager_ops, s2);
+    println!("lazy-vs-eager A/B (same runtime, {n} cards):");
+    println!("  lazy  (buffer reads, zero overlay alloc): {lazy_ops:.0} ops/s (sink {s1})");
+    println!("  eager (full HashMap overlay inflate)     : {eager_ops:.0} ops/s (sink {s2})");
     println!("  eager up-front inflate cost: {:.2} ms; lazy read path is {:.2}x eager", inflate_ms, lazy_ops / eager_ops);
 }
 

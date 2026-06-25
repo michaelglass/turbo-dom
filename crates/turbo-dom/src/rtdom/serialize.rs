@@ -1,7 +1,7 @@
 //! HTML serialization for innerHTML / outerHTML (WHATWG-ish fragment serializer).
 //!
 //! Pure-Rust port of `src/runtime/html-serialize.mjs`. Output is byte-identical to
-//! the JS serializer: same VOID set, same RAW_TEXT set (unescaped content), and the
+//! the JS serializer: same VOID set, same `RAW_TEXT` set (unescaped content), and the
 //! same exact escape character sets for text (`& <space> < >`) and attributes
 //! (`& <space> "`).
 
@@ -101,7 +101,7 @@ fn serialize_node(tree: &Tree, h: Handle, parent_tag: Option<&str>, out: &mut St
         }
         NodeType::Text => {
             let data = tree.node_value(h).unwrap_or_default();
-            if parent_tag.map(is_raw_text).unwrap_or(false) {
+            if parent_tag.is_some_and(is_raw_text) {
                 out.push_str(&data);
             } else {
                 push_escaped_text(out, &data);
@@ -137,7 +137,7 @@ fn serialize_children(tree: &Tree, h: Handle, parent_tag: &str, out: &mut String
 /// innerHTML: serialize only the children of `h`.
 pub fn serialize_inner(tree: &Tree, h: Handle) -> String {
     let mut out = String::new();
-    let parent_tag = tree.local_name(h).map(|s| s.to_string());
+    let parent_tag = tree.local_name(h).map(std::string::ToString::to_string);
     serialize_children(tree, h, parent_tag.as_deref().unwrap_or(""), &mut out);
     out
 }
@@ -145,7 +145,7 @@ pub fn serialize_inner(tree: &Tree, h: Handle) -> String {
 /// outerHTML: serialize `h` itself + its subtree.
 pub fn serialize_outer(tree: &Tree, h: Handle) -> String {
     let mut out = String::new();
-    let parent_tag = tree.parent(h).and_then(|p| tree.local_name(p).map(|s| s.to_string()));
+    let parent_tag = tree.parent(h).and_then(|p| tree.local_name(p).map(std::string::ToString::to_string));
     serialize_node(tree, h, parent_tag.as_deref(), &mut out);
     out
 }

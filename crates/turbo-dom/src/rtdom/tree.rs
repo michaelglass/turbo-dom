@@ -1,5 +1,5 @@
 //! Rust-native DOM tree (pure Rust API, no JS boundary) — Phase-0 core of the
-//! pivoted runtime (RUST_PORT_PLAN §7 verdict: dual-runtime, Rust consumer gets
+//! pivoted runtime (`RUST_PORT_PLAN` §7 verdict: dual-runtime, Rust consumer gets
 //! a native API). Mirrors the JS runtime's load-bearing model:
 //!   * immutable parse buffer (`core::Soa`) is the read-only source of truth,
 //!   * COW overlay: a node only allocates owned state when it is mutated,
@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use std::cell::RefCell;
 
 /// A DOM node type. `#[repr(u8)]` with the standard `nodeType` numeric values, so
-/// it round-trips the SoA's compact `u8` column by a plain cast — no lookup table.
+/// it round-trips the `SoA`'s compact `u8` column by a plain cast — no lookup table.
 /// It enumerates exactly the node types the html5ever core can emit; nothing else
 /// is representable, so a `match` over a node's type is exhaustive and compiler-checked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub enum NodeType {
 }
 
 impl NodeType {
-    /// Read a node type back from the SoA's untyped `u8` column. Total over every
+    /// Read a node type back from the `SoA`'s untyped `u8` column. Total over every
     /// value the parser core writes (see the node-type constants in `core`).
     fn from_u8(v: u8) -> NodeType {
         match v {
@@ -47,7 +47,7 @@ impl NodeType {
     }
 }
 
-/// An element's namespace — the only three an HTML parser produces. The SoA stores
+/// An element's namespace — the only three an HTML parser produces. The `SoA` stores
 /// it as `0`/`1`/`2`; this is the typed view at the API surface (`as u8` to store).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -263,6 +263,7 @@ pub(crate) struct QueryCache {
 }
 
 impl Tree {
+    #[must_use]
     pub fn parse(html: &str) -> Tree {
         let buf = core::parse_html_soa(html);
         let buf_len = buf.node_type.len() as u32;
@@ -279,7 +280,7 @@ impl Tree {
             version: 0,
             qcache: RefCell::new(QueryCache::default()),
             parse_cache: RefCell::new(FxHashMap::default()),
-            css_cache: RefCell::new(Default::default()),
+            css_cache: RefCell::new(crate::rtdom::cascade::CssCache::default()),
             mutation_log: None,
         }
     }
@@ -297,7 +298,7 @@ impl Tree {
         self.buf_len + self.new_nodes.len() as u32
     }
 
-    /// The document root (node 0 in the SoA).
+    /// The document root (node 0 in the `SoA`).
     pub fn root(&self) -> Handle {
         Handle(0)
     }
@@ -383,7 +384,7 @@ impl Tree {
 
     /// Visit each child handle WITHOUT allocating a `Vec` — walks the child overlay
     /// if the node was structurally mutated, else the buffer first-child/next-sib
-    /// chain straight off the SoA. Hot-path alternative to `children()` (which
+    /// chain straight off the `SoA`. Hot-path alternative to `children()` (which
     /// clones a `Vec<Handle>`) for callers that only iterate. Mirrors `for_each_attr`.
     pub fn for_each_child(&self, h: Handle, mut f: impl FnMut(Handle)) {
         if let Some(c) = self.children_ov.get(h) {
@@ -481,7 +482,7 @@ impl Tree {
     }
 
     /// Visit each (name, value) pair WITHOUT allocating — yields borrowed `&str`
-    /// straight from the overlay or the SoA tables. Hot-path alternative to
+    /// straight from the overlay or the `SoA` tables. Hot-path alternative to
     /// `attributes()` (which clones a `Vec<(String, String)>`).
     pub fn for_each_attr(&self, h: Handle, mut f: impl FnMut(&str, &str)) {
         if let Some(ov) = self.attrs_ov.get(h) {
@@ -550,7 +551,7 @@ impl Tree {
     }
 
     /// DOCTYPE name / public id / system id (buffer-backed doctype nodes). The
-    /// SoA stores all three as pooled strings (public/system "" when absent).
+    /// `SoA` stores all three as pooled strings (public/system "" when absent).
     pub fn doctype_name(&self, h: Handle) -> Option<&str> {
         self.doctype_field(h, &self.buf.text_id)
     }
@@ -578,7 +579,7 @@ impl Tree {
             return Some(t.to_string());
         }
         if self.is_new(h) {
-            return self.new_ref(h).char_data().map(|s| s.to_string());
+            return self.new_ref(h).char_data().map(std::string::ToString::to_string);
         }
         // buffer text/comment nodes always have text_id >= 0 (core pools every
         // string); .get + default keeps this total and coverable.
@@ -598,6 +599,9 @@ impl Tree {
     }
     fn collect_text(&self, h: Handle, out: &mut String) {
         for c in self.children(h) {
+            // Comment and Fragment share an empty body but are skipped for distinct,
+            // separately-documented reasons — keep them as separate, commented arms.
+            #[allow(clippy::match_same_arms)]
             match self.node_type(c) {
                 NodeType::Text => out.push_str(&self.node_value(c).unwrap_or_default()),
                 NodeType::Comment => {}
@@ -695,7 +699,7 @@ impl Tree {
 
     pub fn set_attribute(&mut self, h: Handle, name: &str, value: &str) {
         let old = if self.is_recording() {
-            self.get_attribute(h, name).map(|s| s.to_string())
+            self.get_attribute(h, name).map(std::string::ToString::to_string)
         } else {
             None
         };
@@ -711,7 +715,7 @@ impl Tree {
 
     pub fn remove_attribute(&mut self, h: Handle, name: &str) {
         let old = if self.is_recording() {
-            self.get_attribute(h, name).map(|s| s.to_string())
+            self.get_attribute(h, name).map(std::string::ToString::to_string)
         } else {
             None
         };
@@ -1048,7 +1052,7 @@ impl Tree {
 
     /// Force every buffer-backed node into the owned overlay (attrs + children).
     /// Defeats laziness on purpose — only for the lazy-vs-eager A/B bench. After
-    /// this, reads go through the HashMap overlay instead of the zero-alloc buffer.
+    /// this, reads go through the `HashMap` overlay instead of the zero-alloc buffer.
     pub fn force_inflate_all(&mut self) {
         for h in (0..self.buf_len).map(Handle) {
             if self.node_type(h) == NodeType::Element {
@@ -1062,7 +1066,7 @@ impl Tree {
     /// Attach a shadow root to `host` and return its handle (a FRAGMENT node).
     /// The shadow root is NOT a light child of the host — `children(host)` never
     /// includes it (encapsulation is free: queries over the light tree skip it).
-    /// Populate it via `set_inner_html(shadow_root, ...)` or append_child.
+    /// Populate it via `set_inner_html(shadow_root, ...)` or `append_child`.
     pub fn attach_shadow(&mut self, host: Handle) -> Handle {
         let sr = self.push_node(NewNode::Fragment);
         self.children_ov.insert(sr, ChildList::new());
@@ -1136,10 +1140,7 @@ impl Tree {
     pub fn assigned_nodes(&self, slot: Handle) -> Vec<Handle> {
         // shadow_root_of yields a real shadow root (is_shadow_root ⇒ host exists),
         // so the only reachable miss is "slot not in any shadow tree".
-        let host = match self.shadow_root_of(slot).and_then(|sr| self.shadow_host(sr)) {
-            Some(host) => host,
-            None => return Vec::new(),
-        };
+        let Some(host) = self.shadow_root_of(slot).and_then(|sr| self.shadow_host(sr)) else { return Vec::new() };
         let slot_name = self.get_attribute(slot, "name").unwrap_or("");
         self.children(host)
             .into_iter()

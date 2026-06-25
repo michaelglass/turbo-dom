@@ -618,10 +618,7 @@ impl Tree {
             }
         }
         if !c.classes.is_empty() {
-            let cv = match self.get_attribute(h, "class") {
-                Some(v) => v,
-                None => return false,
-            };
+            let Some(cv) = self.get_attribute(h, "class") else { return false };
             for cls in &c.classes {
                 if !has_class(cv, cls) {
                     return false;
@@ -644,7 +641,7 @@ impl Tree {
 
     /// The immediately-preceding ELEMENT sibling of `h` (walking `previous_sibling`
     /// and skipping text/comment nodes). Mirrors selectors.mjs `previousElement`.
-    /// The single source of the element-skipping sibling walk (node_ref.rs wraps it).
+    /// The single source of the element-skipping sibling walk (`node_ref.rs` wraps it).
     pub(crate) fn previous_element_sibling(&self, h: Handle) -> Option<Handle> {
         let mut n = self.previous_sibling(h);
         while let Some(s) = n {
@@ -658,7 +655,7 @@ impl Tree {
 
     /// The immediately-FOLLOWING element sibling of `h` (walking `next_sibling`,
     /// skipping text/comment nodes). Mirrors selectors.mjs `nextElement`.
-    /// The single source of the element-skipping sibling walk (node_ref.rs wraps it).
+    /// The single source of the element-skipping sibling walk (`node_ref.rs` wraps it).
     pub(crate) fn next_element_sibling(&self, h: Handle) -> Option<Handle> {
         let mut n = self.next_sibling(h);
         while let Some(s) = n {
@@ -773,8 +770,8 @@ impl Tree {
             Pseudo::Enabled => {
                 matches!(
                     self.local_name(h),
-                    Some("input") | Some("button") | Some("select") | Some("textarea")
-                        | Some("optgroup") | Some("option") | Some("fieldset")
+                    Some("input" | "button" | "select" | "textarea" | "optgroup" | "option" |
+"fieldset")
                 ) && !self.has_attribute(h, "disabled")
             }
             // TODO: live prop — JS reads el.required.
@@ -783,7 +780,7 @@ impl Tree {
             Pseudo::Optional => {
                 matches!(
                     self.local_name(h),
-                    Some("input") | Some("select") | Some("textarea")
+                    Some("input" | "select" | "textarea")
                 ) && !self.has_attribute(h, "required")
             }
             // TODO: live prop — JS reads el.readOnly.
@@ -888,7 +885,7 @@ impl Tree {
     ///   - Descendant: SOME descendant of `h` matches (ancestor walk capped at `h`).
     ///   - Child (`>`): SOME direct element child matches.
     ///   - Adjacent (`+`): `h`'s next element sibling matches.
-    ///   - GeneralSibling (`~`): SOME following element sibling matches.
+    ///   - `GeneralSibling` (`~`): SOME following element sibling matches.
     fn has_match(&self, h: Handle, rel: &RelativeSelector) -> bool {
         match rel.combinator {
             Combinator::Descendant => {

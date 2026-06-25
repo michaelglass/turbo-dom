@@ -1,4 +1,4 @@
-//! Ergonomic read-only façade over the handle-based [`Tree`] (RUST_PORT_PLAN §7).
+//! Ergonomic read-only façade over the handle-based [`Tree`] (`RUST_PORT_PLAN` §7).
 //!
 //! Threading `(tree, handle)` pairs through call sites is noisy. [`NodeRef`] bundles
 //! a `&Tree` with a [`Handle`] so a consumer can write chained navigation/queries:
@@ -37,12 +37,14 @@ impl<'a> NodeRef<'a> {
 
     /// The underlying node handle.
     #[inline]
+    #[must_use]
     pub fn handle(&self) -> Handle {
         self.handle
     }
 
     /// The tree this node belongs to.
     #[inline]
+    #[must_use]
     pub fn tree(&self) -> &'a Tree {
         self.tree
     }
@@ -50,36 +52,43 @@ impl<'a> NodeRef<'a> {
     // ------------------------------------------------------------------ reads
 
     /// `tagName` (uppercased for HTML-namespace elements). `None` for non-elements.
+    #[must_use]
     pub fn tag_name(&self) -> Option<String> {
         self.tree.tag_name(self.handle)
     }
 
     /// `localName` (lowercase as parsed). `None` for non-elements.
+    #[must_use]
     pub fn local_name(&self) -> Option<&'a str> {
         self.tree.local_name(self.handle)
     }
 
     /// `nodeType` (e.g. `NodeType::Element`, `NodeType::Text`).
+    #[must_use]
     pub fn node_type(&self) -> NodeType {
         self.tree.node_type(self.handle)
     }
 
     /// Attribute value by name, or `None` if absent.
+    #[must_use]
     pub fn get_attribute(&self, name: &str) -> Option<&'a str> {
         self.tree.get_attribute(self.handle, name)
     }
 
     /// Whether the named attribute is present.
+    #[must_use]
     pub fn has_attribute(&self, name: &str) -> bool {
         self.tree.has_attribute(self.handle, name)
     }
 
     /// All attributes as `(name, value)` pairs.
+    #[must_use]
     pub fn attributes(&self) -> Vec<(String, String)> {
         self.tree.attributes(self.handle)
     }
 
     /// Concatenated descendant text.
+    #[must_use]
     pub fn text_content(&self) -> String {
         self.tree.text_content(self.handle)
     }
@@ -87,11 +96,13 @@ impl<'a> NodeRef<'a> {
     // ------------------------------------------------------------- navigation
 
     /// Parent node, if any.
+    #[must_use]
     pub fn parent(&self) -> Option<NodeRef<'a>> {
         self.tree.parent(self.handle).map(|h| self.wrap(h))
     }
 
     /// All child nodes (every node type), in order.
+    #[must_use]
     pub fn children(&self) -> Vec<NodeRef<'a>> {
         self.tree
             .children(self.handle)
@@ -101,26 +112,31 @@ impl<'a> NodeRef<'a> {
     }
 
     /// First child node (any type), if any.
+    #[must_use]
     pub fn first_child(&self) -> Option<NodeRef<'a>> {
         self.tree.first_child(self.handle).map(|h| self.wrap(h))
     }
 
     /// Last child node (any type), if any.
+    #[must_use]
     pub fn last_child(&self) -> Option<NodeRef<'a>> {
         self.tree.last_child(self.handle).map(|h| self.wrap(h))
     }
 
     /// Next sibling node (any type), if any.
+    #[must_use]
     pub fn next_sibling(&self) -> Option<NodeRef<'a>> {
         self.tree.next_sibling(self.handle).map(|h| self.wrap(h))
     }
 
     /// Previous sibling node (any type), if any.
+    #[must_use]
     pub fn previous_sibling(&self) -> Option<NodeRef<'a>> {
         self.tree.previous_sibling(self.handle).map(|h| self.wrap(h))
     }
 
     /// First child that is an element.
+    #[must_use]
     pub fn first_element_child(&self) -> Option<NodeRef<'a>> {
         for h in self.tree.children(self.handle) {
             if self.tree.node_type(h) == NodeType::Element {
@@ -131,6 +147,7 @@ impl<'a> NodeRef<'a> {
     }
 
     /// Last child that is an element.
+    #[must_use]
     pub fn last_element_child(&self) -> Option<NodeRef<'a>> {
         let kids = self.tree.children(self.handle);
         for h in kids.into_iter().rev() {
@@ -142,11 +159,13 @@ impl<'a> NodeRef<'a> {
     }
 
     /// Next sibling that is an element.
+    #[must_use]
     pub fn next_element_sibling(&self) -> Option<NodeRef<'a>> {
         self.tree.next_element_sibling(self.handle).map(|h| self.wrap(h))
     }
 
     /// Previous sibling that is an element.
+    #[must_use]
     pub fn previous_element_sibling(&self) -> Option<NodeRef<'a>> {
         self.tree.previous_element_sibling(self.handle).map(|h| self.wrap(h))
     }
@@ -154,11 +173,13 @@ impl<'a> NodeRef<'a> {
     // ---------------------------------------------------------------- queries
 
     /// Whether this node matches the selector.
+    #[must_use]
     pub fn matches(&self, selector: &str) -> bool {
         self.tree.matches(self.handle, selector)
     }
 
     /// First DESCENDANT matching `selector` (the context node itself is excluded).
+    #[must_use]
     pub fn query_selector(&self, selector: &str) -> Option<NodeRef<'a>> {
         self.tree
             .query_selector_all(selector)
@@ -169,6 +190,7 @@ impl<'a> NodeRef<'a> {
     }
 
     /// All DESCENDANTS matching `selector` (the context node itself is excluded).
+    #[must_use]
     pub fn query_selector_all(&self, selector: &str) -> Vec<NodeRef<'a>> {
         self.tree
             .query_selector_all(selector)

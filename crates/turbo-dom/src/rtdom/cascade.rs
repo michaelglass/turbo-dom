@@ -9,7 +9,7 @@
 //! numbers or initial values. Out of scope (return `""`): @media/@supports/
 //! @keyframes, :hover & other stateful pseudo-classes, pseudo-elements, the
 //! `inherit`/`initial`/`unset` keywords, CSS custom-property resolution. Colors
-//! ARE canonicalized to rgb()/rgba() (`color.rs`) and bare-0 lengths to `0px`,
+//! ARE canonicalized to `rgb()/rgba()` (`color.rs`) and bare-0 lengths to `0px`,
 //! matching what a browser serializes.
 
 use crate::rtdom::color;
@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 /// camelCase → kebab-case property name (only ever fed kebab from CSS, but kept
 /// for parity with the JS `kebab` used at the proxy boundary).
+#[must_use]
 pub fn kebab(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     for c in s.chars() {
@@ -140,10 +141,10 @@ fn set_prop(map: &mut HashMap<String, String>, name: &str, val: &str) {
         let right = t.get(1).copied().unwrap_or(top);
         let bottom = t.get(2).copied().unwrap_or(top);
         let left = t.get(3).copied().unwrap_or(right);
-        map.insert(format!("{}-top", name), top.to_string());
-        map.insert(format!("{}-right", name), right.to_string());
-        map.insert(format!("{}-bottom", name), bottom.to_string());
-        map.insert(format!("{}-left", name), left.to_string());
+        map.insert(format!("{name}-top"), top.to_string());
+        map.insert(format!("{name}-right"), right.to_string());
+        map.insert(format!("{name}-bottom"), bottom.to_string());
+        map.insert(format!("{name}-left"), left.to_string());
     } else if name == "border" {
         let mut width: Option<&str> = None;
         let mut style: Option<&str> = None;
@@ -160,7 +161,7 @@ fn set_prop(map: &mut HashMap<String, String>, name: &str, val: &str) {
         if let Some(w) = width {
             map.insert("border-width".to_string(), w.to_string());
             for s in ["top", "right", "bottom", "left"] {
-                map.insert(format!("border-{}-width", s), w.to_string());
+                map.insert(format!("border-{s}-width"), w.to_string());
             }
         }
         if let Some(s) = style {
@@ -192,10 +193,7 @@ fn strip_important(v: &str) -> String {
 /// Parse a `prop:val;prop:val` declaration block into `map` (later wins).
 fn parse_decls(text: &str, map: &mut HashMap<String, String>) {
     for decl in text.split(';') {
-        let c = match decl.find(':') {
-            Some(c) => c,
-            None => continue,
-        };
+        let Some(c) = decl.find(':') else { continue };
         let name = decl[..c].trim().to_ascii_lowercase();
         if name.is_empty() {
             continue;
@@ -510,10 +508,7 @@ fn lookup(map: &HashMap<String, String>, prop: &str) -> String {
             }
         }
     }
-    let v = match v {
-        Some(v) => v,
-        None => return String::new(),
-    };
+    let Some(v) = v else { return String::new() };
     // px-normalize a bare `0` for length properties (browsers report `0px`)
     if v == "0" && is_length_prop(prop) {
         return "0px".to_string();
@@ -655,6 +650,7 @@ pub fn computed_style(tree: &Tree, h: Handle) -> HashMap<String, String> {
 }
 
 /// Resolve one property from a computed-style map — `""` for absent (honest).
+#[must_use]
 pub fn get_property_value(map: &HashMap<String, String>, prop: &str) -> String {
     lookup(map, &prop.to_ascii_lowercase())
 }

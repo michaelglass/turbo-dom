@@ -7,6 +7,7 @@ use super::events::{Dom, Event};
 use super::serialize;
 use super::tree::Tree;
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::fmt::Write;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::time::Instant;
 
@@ -155,12 +156,13 @@ fn fixture(cards: usize) -> String {
 </style></head><body><main id=app class=grid>",
     );
     for i in 0..cards {
-        s.push_str(&format!(
+        let _ = write!(
+            s,
             "<div class=\"card sx-{}\" data-testid=\"card-{}\" id=\"c{}\">\
 <h2 class=title>Title {}</h2><p class=body>Body text for card {}.</p>\
 <button class=btn type=button>Action</button></div>",
             i % 7, i, i, i, i
-        ));
+        );
     }
     s.push_str("</main></body></html>");
     s
@@ -168,16 +170,16 @@ fn fixture(cards: usize) -> String {
 
 /// Multi-dimension numbers for the cross-DOM comparison (bench/compare-all.mjs reads
 /// the `RTDOM_JSON` line). Run:
-///   cargo test --release --lib --features rust-runtime rtdom::bench::compare_all -- --ignored --nocapture
+///   cargo test --release --lib --features rust-runtime `rtdom::bench::compare_all` -- --ignored --nocapture
 #[test]
-#[ignore]
+#[ignore = "perf bench — run explicitly with --ignored"]
 fn compare_all() {
     use super::tree::Tree;
     let html = fixture(300);
 
     // D1 parse: unique HTML each iter (rtdom has no parse cache; keep it honest anyway)
     let mut i = 0u64;
-    let parse = bench(|| { i += 1; Tree::parse(&format!("{html}<!--{i}-->")).node_count() as u64 }, 400);
+    let parse = bench(|| { i += 1; u64::from(Tree::parse(&format!("{html}<!--{i}-->")).node_count()) }, 400);
 
     // D2 construct + light query
     let mut j = 0u64;
@@ -211,7 +213,7 @@ fn compare_all() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "perf bench — run explicitly with --ignored"]
 fn hotspot_report() {
     let n = 300;
     let html = fixture(n);
@@ -220,7 +222,7 @@ fn hotspot_report() {
     let mut rows: Vec<(String, Measure)> = Vec::new();
 
     // 1. parse (cold tree build per call)
-    rows.push(("parse(300 cards)".into(), measure(|| Tree::parse(&html).node_count() as u64, 300, 200)));
+    rows.push(("parse(300 cards)".into(), measure(|| u64::from(Tree::parse(&html).node_count()), 300, 200)));
 
     // 2. querySelectorAll cached (repeated query, unchanged tree = cache hit — RTL pattern)
     rows.push(("qsa div.card (cached)".into(), measure(|| base.query_selector_all("div.card").len() as u64, 300, 5000)));
@@ -232,7 +234,7 @@ fn hotspot_report() {
     }, 300, 200)));
 
     // 4. getElementById (uncached full-tree walk)
-    rows.push(("getElementById".into(), measure(|| base.get_element_by_id("c250").map_or(0, |h| h.0 as u64), 300, 5000)));
+    rows.push(("getElementById".into(), measure(|| base.get_element_by_id("c250").map_or(0, |h| u64::from(h.0)), 300, 5000)));
 
     // 5. getAttribute over all cards (per-node buffer scan)
     rows.push(("getAttribute x3/card".into(), measure(|| {
@@ -264,7 +266,7 @@ fn hotspot_report() {
         let btn = dom.tree.query_selector("button").unwrap();
         rows.push(("dispatch listener-less".into(), measure(|| {
             let mut e = Event::new("click", true, true);
-            dom.dispatch_event(btn, &mut e) as u64
+            u64::from(dom.dispatch_event(btn, &mut e))
         }, 300, 5000)));
     }
 
@@ -318,9 +320,10 @@ fn big_fixture(depth: usize, width: usize) -> String {
             *counter += 1;
             let id = *counter;
             let hot = if id.is_multiple_of(5) { " hot" } else { "" };
-            s.push_str(&format!(
+            let _ = write!(
+                s,
                 "<section class=\"wrap lvl-{level} w-{w}{hot}\" data-depth=\"{level}\" id=\"s{id}\">"
-            ));
+            );
             // a row of cards at this level
             for _c in 0..width {
                 *counter += 1;
@@ -330,14 +333,15 @@ fn big_fixture(depth: usize, width: usize) -> String {
                 } else {
                     ""
                 };
-                s.push_str(&format!(
+                let _ = write!(
+                    s,
                     "<div class=\"row\"><article class=\"card sx-{}\" data-testid=\"card-{cid}\" id=\"c{cid}\">\
 <h3 class=title>Title {cid}</h3>\
 <p class=body>Body text for card {cid} at level {level}.</p>\
 <button class=btn type=button>Action</button>{flag}\
 </article></div>",
                     cid % 7
-                ));
+                );
             }
             // recurse for depth in EXACTLY ONE sibling so node count stays
             // ~depth*width (a single sibling carries the deep chain).
@@ -367,7 +371,7 @@ fn big_fixture(depth: usize, width: usize) -> String {
 /// pass) on a multi-thousand-node fixture. The 300-card hotspot fixture is
 /// parse-dominated and hides everything downstream; this is where allocs bite.
 #[test]
-#[ignore]
+#[ignore = "perf bench — run explicitly with --ignored"]
 fn large_tree_report() {
     let depth = 6;
     let width = 8;

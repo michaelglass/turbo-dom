@@ -8,6 +8,7 @@
 //! doctype `<!DOCTYPE name>` or `<!DOCTYPE name "pub" "sys">`, template `content`.
 
 use super::tree::{Handle, NodeType, Tree};
+use std::fmt::Write;
 
 const NS_LABEL: [&str; 3] = ["", "svg ", "math "];
 
@@ -66,9 +67,9 @@ fn serialize_node(tree: &Tree, h: Handle, depth: usize, out: &mut String) {
             let pub_id = tree.doctype_public_id(h).unwrap_or("");
             let sys_id = tree.doctype_system_id(h).unwrap_or("");
             if pub_id.is_empty() && sys_id.is_empty() {
-                out.push_str(&format!("<!DOCTYPE {name}>\n"));
+                let _ = writeln!(out, "<!DOCTYPE {name}>");
             } else {
-                out.push_str(&format!("<!DOCTYPE {name} \"{pub_id}\" \"{sys_id}\">\n"));
+                let _ = writeln!(out, "<!DOCTYPE {name} \"{pub_id}\" \"{sys_id}\">");
             }
         }
         NodeType::Fragment => {

@@ -1,4 +1,4 @@
-//! MutationObserver for the Rust-native runtime. Mirrors `MutationObserver` in
+//! `MutationObserver` for the Rust-native runtime. Mirrors `MutationObserver` in
 //! the JS runtime, minus the async microtask delivery (a JS event-loop concern):
 //! a Rust consumer pulls pending records synchronously via `take_records`, exactly
 //! like the DOM `takeRecords()` method.
@@ -26,6 +26,7 @@ pub enum MutationRecord {
 
 impl MutationRecord {
     /// The mutated node (DOM `MutationRecord.target`). Every record has one.
+    #[must_use]
     pub fn target(&self) -> Handle {
         match *self {
             MutationRecord::ChildList { target, .. }
@@ -35,6 +36,7 @@ impl MutationRecord {
     }
 
     /// Nodes added under `target` (DOM `addedNodes`); empty for non-`childList`.
+    #[must_use]
     pub fn added(&self) -> &[Handle] {
         match self {
             MutationRecord::ChildList { added, .. } => added,
@@ -43,6 +45,7 @@ impl MutationRecord {
     }
 
     /// Nodes removed from `target` (DOM `removedNodes`); empty for non-`childList`.
+    #[must_use]
     pub fn removed(&self) -> &[Handle] {
         match self {
             MutationRecord::ChildList { removed, .. } => removed,
@@ -51,6 +54,7 @@ impl MutationRecord {
     }
 
     /// The changed attribute's name (DOM `attributeName`); `None` unless `attributes`.
+    #[must_use]
     pub fn attribute_name(&self) -> Option<&str> {
         match self {
             MutationRecord::Attributes { name, .. } => Some(name),
@@ -60,6 +64,7 @@ impl MutationRecord {
 
     /// The prior attribute/text value (DOM `oldValue`); `None` when unrequested or
     /// not applicable — `childList` records never carry one.
+    #[must_use]
     pub fn old_value(&self) -> Option<&str> {
         match self {
             MutationRecord::ChildList { .. } => None,
@@ -102,6 +107,7 @@ impl Default for MutationObserver {
 }
 
 impl MutationObserver {
+    #[must_use]
     pub fn new() -> Self {
         MutationObserver { target: None, init: ObserverInit::default() }
     }
@@ -122,10 +128,7 @@ impl MutationObserver {
     /// Drain + return the records relevant to this observer (filtered by type,
     /// target/subtree, with old values nulled out when not requested).
     pub fn take_records(&self, tree: &mut Tree) -> Vec<MutationRecord> {
-        let target = match self.target {
-            Some(t) => t,
-            None => return Vec::new(),
-        };
+        let Some(target) = self.target else { return Vec::new() };
         let all = tree.take_mutation_records();
         all.into_iter()
             .filter(|r| self.type_enabled(r))
@@ -148,10 +151,10 @@ impl MutationObserver {
     fn strip_old_value(&self, r: &mut MutationRecord) {
         match r {
             MutationRecord::Attributes { old_value, .. } if !self.init.attribute_old_value => {
-                *old_value = None
+                *old_value = None;
             }
             MutationRecord::CharacterData { old_value, .. } if !self.init.character_data_old_value => {
-                *old_value = None
+                *old_value = None;
             }
             _ => {}
         }
