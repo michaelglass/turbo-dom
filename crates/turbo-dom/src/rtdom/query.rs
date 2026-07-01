@@ -512,7 +512,14 @@ fn parse_attr(inner: &str) -> Attr {
             // operator char (if any) sits immediately before '='
             let raw_name = &inner[..eq];
             let mut val = inner[eq + 1..].trim();
-            if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
+            // Strip matching surrounding quotes. The `len >= 2` guard is load-bearing: a
+            // lone quote char (unterminated value, e.g. `[a="`) satisfies both
+            // starts_with AND ends_with on the same byte, and `val[1..0]` would panic.
+            // Mirrors the JS `value.length >= 2` guard in selectors.mjs parseAttr.
+            if val.len() >= 2
+                && ((val.starts_with('"') && val.ends_with('"'))
+                    || (val.starts_with('\'') && val.ends_with('\'')))
+            {
                 val = &val[1..val.len() - 1];
             }
             let val = val.to_string();
@@ -819,37 +826,46 @@ impl Tree {
     /// the `.b` that is a direct child of `.a` is *farther* from `.c` than another
     /// `.b` — is matched correctly. A greedy nearest-ancestor walk would miss it.
     fn matches_complex(&self, h: Handle, cx: &Complex) -> bool {
-        self.matches_complex_scoped(h, cx, None)
+        self.matches_chain(h, cx, cx.rest.len(), None)
     }
 
     /// Match the chain prefix ending at position `k` against element `h`. The
     /// combinator in `rest[k-1]` connects position `k` to position `k-1`
     /// (see `parse_complex`); position 0 (the head) has no combinator.
-    fn matches_chain(&self, h: Handle, cx: &Complex, k: usize, boundary: Option<Handle>) -> bool {
+    ///
+    /// `scope` supports `:has()`: when `Some((comb, el))`, the LEFTMOST compound must,
+    /// in addition to matching, relate to the scope element `el` by `comb` — so a
+    /// relative selector's head is anchored to the `:has()` subject. `None` (plain
+    /// matching) means the leftmost compound stands alone.
+    fn matches_chain(
+        &self,
+        h: Handle,
+        cx: &Complex,
+        k: usize,
+        scope: Option<(Combinator, Handle)>,
+    ) -> bool {
         if !self.matches_compound(h, Self::compound_at(cx, k)) {
             return false;
         }
         if k == 0 {
-            return true; // matched the leftmost compound — the whole chain is satisfied
+            // matched the leftmost compound — plain matching is done; `:has()` must also
+            // check the head relates to the scope element by the leading combinator.
+            return match scope {
+                None => true,
+                Some((comb, el)) => self.relates_to_scope(h, comb, el),
+            };
         }
-        // A parent/ancestor step that reaches `boundary` (the `:has()` scope element)
-        // leaves the scope → reject. For normal matching `boundary` is `None`, so
-        // `within` is always true and this is the plain unbounded walk.
-        let within = |p: Handle| boundary != Some(p);
         match cx.rest[k - 1].0 {
             // the direct parent must match the remaining prefix
             Combinator::Child => match self.parent(h) {
-                Some(p) if within(p) => self.matches_chain(p, cx, k - 1, boundary),
-                _ => false,
+                Some(p) => self.matches_chain(p, cx, k - 1, scope),
+                None => false,
             },
             // ANY ancestor may match the remaining prefix — try each, backtracking
             Combinator::Descendant => {
                 let mut anc = self.parent(h);
                 while let Some(a) = anc {
-                    if !within(a) {
-                        break; // reached the scope boundary — stop ascending
-                    }
-                    if self.matches_chain(a, cx, k - 1, boundary) {
+                    if self.matches_chain(a, cx, k - 1, scope) {
                         return true;
                     }
                     anc = self.parent(a);
@@ -859,7 +875,7 @@ impl Tree {
             // the IMMEDIATELY-preceding element sibling must match the prefix
             // (single step — mirrors the JS `'+'` arm).
             Combinator::Adjacent => match self.previous_element_sibling(h) {
-                Some(prev) => self.matches_chain(prev, cx, k - 1, boundary),
+                Some(prev) => self.matches_chain(prev, cx, k - 1, scope),
                 None => false,
             },
             // ANY preceding element sibling may match the prefix — try each,
@@ -868,7 +884,7 @@ impl Tree {
             Combinator::GeneralSibling => {
                 let mut prev = self.previous_element_sibling(h);
                 while let Some(p) = prev {
-                    if self.matches_chain(p, cx, k - 1, boundary) {
+                    if self.matches_chain(p, cx, k - 1, scope) {
                         return true;
                     }
                     prev = self.previous_element_sibling(p);
@@ -878,58 +894,71 @@ impl Tree {
         }
     }
 
-    /// `:has()` forward existence search. Given the scope element `h` and one
-    /// relative selector, enumerate the candidate set per the leading combinator
-    /// and test the relative complex FORWARD (the opposite direction from the normal
-    /// right-to-left matcher), confined to `h`'s scope where applicable:
-    ///   - Descendant: SOME descendant of `h` matches (ancestor walk capped at `h`).
-    ///   - Child (`>`): SOME direct element child matches.
-    ///   - Adjacent (`+`): `h`'s next element sibling matches.
-    ///   - `GeneralSibling` (`~`): SOME following element sibling matches.
-    fn has_match(&self, h: Handle, rel: &RelativeSelector) -> bool {
-        match rel.combinator {
-            Combinator::Descendant => {
-                // every descendant ELEMENT of `h`, capping the relative complex's own
-                // ancestor walk at `h` so a multi-compound `.a .b` stays in scope.
-                // some_descendant short-circuits without materializing a Vec.
-                self.some_descendant(h, |d| self.matches_complex_scoped(d, &rel.complex, Some(h)))
-            }
-            Combinator::Child => {
-                let mut found = false;
-                self.for_each_child(h, |c| {
-                    if !found
-                        && self.node_type(c) == NodeType::Element
-                        && self.matches_complex_scoped(c, &rel.complex, Some(h))
-                    {
-                        found = true;
-                    }
-                });
-                found
-            }
-            Combinator::Adjacent => match self.next_element_sibling(h) {
-                // the sibling is outside `h`'s subtree → no scope cap
-                Some(sib) => self.matches_complex_scoped(sib, &rel.complex, None),
-                None => false,
-            },
+    /// Does `node` stand in relation `comb` to the `:has()` scope element `el`? This
+    /// anchors the HEAD (leftmost) compound of a relative selector to the subject:
+    /// `> .a` ⇒ the `.a` head is a direct child, `.a .b` ⇒ the `.a` head is a
+    /// descendant, etc. The leading combinator constrains the head — NOT the whole
+    /// complex (anchoring the entire complex at a child/sibling candidate was the bug).
+    fn relates_to_scope(&self, node: Handle, comb: Combinator, el: Handle) -> bool {
+        match comb {
+            Combinator::Child => self.parent(node) == Some(el),
+            Combinator::Adjacent => self.previous_element_sibling(node) == Some(el),
             Combinator::GeneralSibling => {
-                let mut sib = self.next_element_sibling(h);
-                while let Some(s) = sib {
-                    if self.matches_complex_scoped(s, &rel.complex, None) {
+                let mut prev = self.previous_element_sibling(node);
+                while let Some(s) = prev {
+                    if s == el {
                         return true;
                     }
-                    sib = self.next_element_sibling(s);
+                    prev = self.previous_element_sibling(s);
+                }
+                false
+            }
+            // Descendant: `el` is a proper ancestor of `node`.
+            Combinator::Descendant => {
+                let mut anc = self.parent(node);
+                while let Some(a) = anc {
+                    if a == el {
+                        return true;
+                    }
+                    anc = self.parent(a);
                 }
                 false
             }
         }
     }
 
-    /// Like `matches_complex`, but ancestor/parent steps (Descendant/Child) must
-    /// stay strictly BELOW `boundary` (exclusive) when one is given — so a `:has()`
-    /// relative complex cannot escape the scope element's subtree. With `None`
-    /// boundary this is exactly `matches_complex` (used for sibling candidates).
-    fn matches_complex_scoped(&self, h: Handle, cx: &Complex, boundary: Option<Handle>) -> bool {
-        self.matches_chain(h, cx, cx.rest.len(), boundary)
+    /// `:has()` existence search. The relative complex must match some target element
+    /// (its rightmost compound) reachable from the subject `h`, with its HEAD compound
+    /// related to `h` by the leading combinator (enforced at `k == 0` via
+    /// `relates_to_scope`). Candidate targets: descendants of `h` for `>`/descendant
+    /// heads (the head, and thus the whole match, lives in `h`'s subtree); a
+    /// following-sibling subtree for `+`/`~` heads. Mirrors the JS `hasMatch`.
+    fn has_match(&self, h: Handle, rel: &RelativeSelector) -> bool {
+        let scope = Some((rel.combinator, h));
+        let k = rel.complex.rest.len();
+        match rel.combinator {
+            Combinator::Adjacent => match self.next_element_sibling(h) {
+                Some(sib) => {
+                    self.some_self_or_descendant(sib, |x| self.matches_chain(x, &rel.complex, k, scope))
+                }
+                None => false,
+            },
+            Combinator::GeneralSibling => {
+                let mut sib = self.next_element_sibling(h);
+                while let Some(s) = sib {
+                    if self.some_self_or_descendant(s, |x| self.matches_chain(x, &rel.complex, k, scope)) {
+                        return true;
+                    }
+                    sib = self.next_element_sibling(s);
+                }
+                false
+            }
+            // Child / Descendant leading combinator: the head (hence every match) is
+            // within `h`'s subtree, so any descendant can be the target endpoint.
+            Combinator::Child | Combinator::Descendant => {
+                self.some_descendant(h, |x| self.matches_chain(x, &rel.complex, k, scope))
+            }
+        }
     }
 
     /// Parse `selector` into its selector-list, memoized by string in `parse_cache`
@@ -1750,5 +1779,45 @@ mod tests {
         let r = tree.query_selector_all("section:has(.a .b)");
         assert_eq!(r.len(), 1);
         assert_eq!(tree.get_attribute(r[0], "id"), Some("hit"));
+    }
+
+    #[test]
+    fn pseudo_has_leading_combinator_binds_head_not_whole_complex() {
+        // Regression: a leading combinator constrains the HEAD compound of the relative
+        // complex, not the whole thing. Anchoring the entire complex at a child/sibling
+        // candidate made `> .a .b` / `> .a > .b` return 0.
+        let tree = Tree::parse(
+            "<div id=u><span class=a><span class=b>hit</span></span></div>             <div id=v><div><span class=a><span class=b>deep</span></span></div></div>",
+        );
+        // u: `.a` is a DIRECT child, `.b` a descendant of it → match
+        assert_eq!(tree.query_selector_all("#u:has(> .a .b)").len(), 1);
+        assert_eq!(tree.query_selector_all("#u:has(> .a > .b)").len(), 1);
+        // v: `.a` is a grandchild, so `> .a …` must NOT match, but descendant form does
+        assert_eq!(tree.query_selector_all("#v:has(> .a .b)").len(), 0);
+        assert_eq!(tree.query_selector_all("#v:has(.a .b)").len(), 1);
+    }
+
+    #[test]
+    fn pseudo_has_sibling_combinator_binds_head_multi_compound() {
+        let tree = Tree::parse(
+            "<h2 id=h>t</h2><div class=s><span class=x>hit</span></div>             <p id=p>t</p><em>z</em><div class=s2><span class=x>y</span></div>",
+        );
+        // head bound to the subject's next / following sibling, then a descendant tail
+        assert_eq!(tree.query_selector_all("#h:has(+ div .x)").len(), 1);
+        assert_eq!(tree.query_selector_all("#h:has(~ div .x)").len(), 1);
+        // #p's IMMEDIATE next sibling is <em>, not the div → `+` fails, `~` succeeds
+        assert_eq!(tree.query_selector_all("#p:has(+ div .x)").len(), 0);
+        assert_eq!(tree.query_selector_all("#p:has(~ div .x)").len(), 1);
+    }
+
+    #[test]
+    fn attr_selector_unterminated_quote_does_not_panic() {
+        // Regression: a lone quote char as the attribute value (unterminated `[a="`)
+        // used to panic in parse_attr via `val[1..0]`. Must degrade gracefully.
+        let tree = Tree::parse("<div a=\"\"></div><div a=x></div>");
+        // no panic; the queries simply return without crashing the process
+        let _ = tree.query_selector_all("div[a=\"");
+        let _ = tree.query_selector_all("div[a='");
+        let _ = tree.query_selector_all("div[a=\"\"]");
     }
 }

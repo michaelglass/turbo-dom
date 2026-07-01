@@ -182,3 +182,36 @@ test(':has(.a .b) ancestor walk iterates past a non-matching wrapper (within sco
   assert.equal(r.length, 1);
   assert.equal(r[0].getAttribute('id'), 'hit');
 });
+
+// Regression: a leading combinator constrains the HEAD compound of the relative
+// complex, not the whole thing. Anchoring the entire complex at a child/sibling
+// candidate made these return 0. (parity fix, both engines)
+test(':has(> A B) — leading combinator binds head, multi-compound tail', () => {
+  const { document } = createEnvironment(
+    '<!doctype html><body>' +
+      '<div id="u"><span class="a"><span class="b">hit</span></span></div>' +
+      '<div id="v"><div><span class="a"><span class="b">deep</span></span></div></div>' +
+      '</body>',
+  );
+  // u: .a is a direct child, .b a descendant of it → match
+  assert.equal(document.querySelectorAll('#u:has(> .a .b)').length, 1);
+  assert.equal(document.querySelectorAll('#u:has(> .a > .b)').length, 1);
+  // v: .a is a grandchild, so `> .a …` must NOT match
+  assert.equal(document.querySelectorAll('#v:has(> .a .b)').length, 0);
+  // but the descendant form does match v
+  assert.equal(document.querySelectorAll('#v:has(.a .b)').length, 1);
+});
+
+test(':has(+ A B) / :has(~ A B) — sibling combinator binds head', () => {
+  const { document } = createEnvironment(
+    '<!doctype html><body>' +
+      '<h2 id="h">t</h2><div class="s"><span class="x">hit</span></div>' +
+      '<p id="p">t</p><em>z</em><div class="s2"><span class="x">y</span></div>' +
+      '</body>',
+  );
+  assert.equal(document.querySelectorAll('#h:has(+ div .x)').length, 1);
+  assert.equal(document.querySelectorAll('#h:has(~ div .x)').length, 1);
+  // #p's immediate next sibling is <em>, not the div → + fails, ~ succeeds
+  assert.equal(document.querySelectorAll('#p:has(+ div .x)').length, 0);
+  assert.equal(document.querySelectorAll('#p:has(~ div .x)').length, 1);
+});

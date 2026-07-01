@@ -1118,6 +1118,18 @@ impl Tree {
     /// `Vec`. Children are pushed alloc-free (push then reverse the just-added
     /// segment) so traversal stays document-order. Mirrors the JS `someDescendant`;
     /// the alloc-free alternative to `descendants(h).into_iter().any(...)`.
+    /// `root` itself (when an element) or any of its descendants satisfies `pred`.
+    pub(crate) fn some_self_or_descendant(
+        &self,
+        root: Handle,
+        mut pred: impl FnMut(Handle) -> bool,
+    ) -> bool {
+        if self.node_type(root) == NodeType::Element && pred(root) {
+            return true;
+        }
+        self.some_descendant(root, pred)
+    }
+
     pub(crate) fn some_descendant(&self, root: Handle, mut pred: impl FnMut(Handle) -> bool) -> bool {
         let mut stack: Vec<Handle> = Vec::new();
         let base = stack.len();

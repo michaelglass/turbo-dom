@@ -431,25 +431,26 @@ function matchComplex(el, cx) {
 // backtrack — committing to the nearest one (the old greedy walk) wrongly rejected
 // chains like `.a > .b .c` where a farther `.b` is the one that is a child of `.a`.
 // `cx.rest[k-1].combinator` is the relation between compounds k-1 and k.
-// `boundary` caps the ancestor/parent walk for `:has()` scoping: a step that reaches
-// it has left the scope → reject. `null` (the default, and what matchComplex passes)
-// means no cap, so this also serves matchComplex and sibling candidates — one sentinel.
-function matchChain(el, cx, k, boundary = null) {
+// `scope` supports `:has()`: when set to `{ comb, node }`, the LEFTMOST compound must,
+// in addition to matching, relate to the scope element `node` by `comb` (so a relative
+// selector's head is anchored to the `:has()` subject). `null` (what matchComplex and
+// plain matching pass) means the leftmost compound stands alone — one sentinel.
+function matchChain(el, cx, k, scope = null) {
   if (!matchCompound(el, compoundAt(cx, k))) return false;
-  if (k === 0) return true; // matched the leftmost compound — whole chain satisfied
+  if (k === 0) return scope === null ? true : relatesToScope(el, scope.comb, scope.node);
   const comb = cx.rest[k - 1].combinator; // relation between compounds k-1 and k
   if (comb === '>') {
     const p = el.parentNode;
-    return !!p && p.nodeType === 1 && p !== boundary && matchChain(p, cx, k - 1, boundary);
+    return !!p && p.nodeType === 1 && matchChain(p, cx, k - 1, scope);
   }
   if (comb === '+') {
     const prev = previousElement(el);
-    return !!prev && matchChain(prev, cx, k - 1, boundary);
+    return !!prev && matchChain(prev, cx, k - 1, scope);
   }
   if (comb === ' ') {
     let anc = el.parentNode;
-    while (anc && anc.nodeType === 1 && anc !== boundary) {
-      if (matchChain(anc, cx, k - 1, boundary)) return true;
+    while (anc && anc.nodeType === 1) {
+      if (matchChain(anc, cx, k - 1, scope)) return true;
       anc = anc.parentNode;
     }
     return false;
@@ -457,41 +458,52 @@ function matchChain(el, cx, k, boundary = null) {
   // '~' general sibling
   let prev = previousElement(el);
   while (prev) {
-    if (matchChain(prev, cx, k - 1, boundary)) return true;
+    if (matchChain(prev, cx, k - 1, scope)) return true;
     prev = previousElement(prev);
   }
   return false;
 }
 
-// :has() forward existence search. Given the scope element `el` and one relative
-// selector, enumerate the candidate set per the leading combinator and test the
-// relative complex FORWARD (the opposite direction from the normal right-to-left
-// matcher), confined to `el`'s scope where applicable. Mirrors the Rust has_match.
+// Does `node` stand in relation `comb` to the `:has()` scope element `el`? This anchors
+// the leftmost compound of a relative selector: `> .a` means the `.a` head is a direct
+// child of the subject, `.a .b` means the `.a` head is a descendant, etc. The leading
+// combinator constrains the HEAD compound — NOT the whole complex (the bug in anchoring
+// the entire relative complex at a child/sibling candidate).
+function relatesToScope(node, comb, el) {
+  if (comb === '>') return node.parentNode === el;
+  if (comb === '+') return previousElement(node) === el;
+  if (comb === '~') { let p = previousElement(node); while (p) { if (p === el) return true; p = previousElement(p); } return false; }
+  // ' ' descendant: `el` is a proper ancestor of `node`
+  let a = node.parentNode;
+  while (a) { if (a === el) return true; a = a.parentNode; }
+  return false;
+}
+
+// :has() existence search. The relative complex must match some target element (its
+// rightmost compound) reachable from the subject `el`, with its HEAD compound related
+// to `el` by the leading combinator (enforced at k===0 via `relatesToScope`). Candidate
+// targets: descendants of `el` for `>`/descendant heads (the head, and thus the whole
+// match, lives in `el`'s subtree); a following-sibling subtree for `+`/`~` heads.
+// Mirrors the Rust has_match.
 function hasMatch(el, rel) {
   const { combinator, complex } = rel;
-  if (combinator === '>') {
-    const kids = rawChildren(el);
-    for (let i = 0; i < kids.length; i++) {
-      const c = kids[i];
-      if (c.nodeType === 1 && matchComplexScoped(c, complex, el)) return true;
-    }
-    return false;
-  }
+  const scope = { comb: combinator, node: el };
+  const test = (x) => matchChain(x, complex, complex.rest.length, scope);
   if (combinator === '+') {
-    const sib = nextElement(el); // sibling is outside `el`'s subtree → no scope cap
-    return !!sib && matchComplexScoped(sib, complex, null);
+    const sib = nextElement(el);
+    return !!sib && someSelfOrDescendant(sib, test);
   }
   if (combinator === '~') {
     let sib = nextElement(el);
     while (sib) {
-      if (matchComplexScoped(sib, complex, null)) return true;
+      if (someSelfOrDescendant(sib, test)) return true;
       sib = nextElement(sib);
     }
     return false;
   }
-  // descendant: every descendant of `el`, capping the relative complex's own
-  // ancestor walk at `el` so a multi-compound `.a .b` stays in scope.
-  return someDescendant(el, (d) => matchComplexScoped(d, complex, el));
+  // '>' and descendant leading combinator: the head (hence every match) is within
+  // `el`'s subtree, so any descendant can be the target endpoint.
+  return someDescendant(el, test);
 }
 
 // Visit every descendant element of `node` (document order); short-circuit on the
@@ -507,12 +519,10 @@ function someDescendant(node, pred) {
   return false;
 }
 
-// Like matchComplex, but ancestor/parent steps (descendant ' ' / child '>') must
-// stay strictly BELOW `boundary` (exclusive) when one is given — so a :has()
-// relative complex cannot escape the scope element's subtree. `boundary === null`
-// makes this exactly matchComplex (used for sibling candidates).
-function matchComplexScoped(el, cx, boundary) {
-  return matchChain(el, cx, cx.rest.length, boundary);
+// `node` itself (if an element) or any of its descendants satisfies `pred`.
+function someSelfOrDescendant(node, pred) {
+  if (node.nodeType === 1 && pred(node)) return true;
+  return someDescendant(node, pred);
 }
 
 export function matchesSelector(el, selector) {
