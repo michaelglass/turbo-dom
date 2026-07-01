@@ -14,11 +14,39 @@ at the time); this file reconstructs them from history.
   `"a b"` and whitespace-normalized matching (getByRole/getByText/toHaveText on a
   serialized DOM) failed. Spaces now serialize verbatim; only `&`/`<`/`>`/`"` are escaped.
 
-## [Unreleased] — Rust-native DOM runtime (`turbo-dom` crate)
+## [0.4.0] — selector engine rewrite + Rust-native DOM runtime consolidation
 
-Not an npm-package change: the published `@miaskiewicz/turbo-dom` (JS runtime + parser) is
-unaffected — `src/runtime/*.mjs` is byte-identical and the napi/wasm parser API is unchanged.
+Touches BOTH runtimes at parity. The napi/wasm parser API is unchanged; `src/runtime/*.mjs`
+gains the new selector engine and a few correctness fixes (below).
 
+### Added (JS runtime + rtdom, mirrored)
+- **CSS selector engine rewrite** — a tokenizer + recursive-descent parser producing a non-empty
+  `head + tail` AST ("parse, don't validate"), replacing the ad-hoc string-splitting. Correct
+  backtracking over mixed child/descendant chains (`.a > .b .c`), and parse-cached. Mirrored Rust ↔ JS.
+- **Full combinator + list coverage** — `+`/`~` combinators (closed the Rust gap),
+  `:is()`/`:where()`/`:not()` selector lists, and the relational `:has()` — browser-level selectors
+  in both runtimes.
+- **rtdom live form-state properties** — `Tree::set_form_property`/`clear_form_property` let a Rust
+  consumer drive `:checked`/`:selected`/`:disabled`/`:required`/`:read-only` independently of the HTML
+  attribute (the Rust analogue of React assigning `el.checked`), matching the JS runtime's live-property
+  reads. Parse/no-interaction path is unchanged (attribute-driven).
+- **rtdom opt-in strict selector validation** — `query_selector_all_checked`/`query_selector_checked`/
+  `matches_checked` return `Err(SelectorError)` for malformed selectors (an unterminated `[...]`, an
+  unexpected char, or a stray combinator — the inputs a browser rejects with `SyntaxError`), while the
+  infallible `query_selector*` path stays lenient and fast.
+
+### Fixed
+- **`:has()` leading combinator** bound the wrong compound: `:has(> .a .b)`, `:has(> .a > .b)`,
+  `:has(+ div .x)` returned nothing. The leading combinator now constrains the relative selector's
+  HEAD compound, not the whole complex. (both runtimes)
+- **rtdom panic** on an unterminated quoted attribute value (`div[a="`) — a lone quote sliced out of
+  range; now guarded (`len >= 2`), degrading gracefully.
+- **JS `after()`/`replaceWith()`** threw `NotFoundError` when an inserted node was the reference node's
+  own next sibling (`a.after(b, c)`); now anchors on a viable-next-sibling (rtdom parity).
+- **JS `@import`/`@charset`** statement at-rules no longer swallow the following CSS rule — the
+  stylesheet scanner stops at `;` outside a block (rtdom parity).
+
+### Rust-native DOM runtime consolidation (`turbo-dom` crate)
 - **`crates/turbo-dom`** — a pure-Rust port of the DOM runtime for in-process **Rust** consumers
   (crawlers/extractors/SSR): lazy COW tree over the SoA, version-cached queries, partial
   `getComputedStyle`, events, shadow DOM, serialize, plus color/cssom/svg/file/canvas/
